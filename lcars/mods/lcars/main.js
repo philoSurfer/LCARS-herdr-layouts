@@ -4,7 +4,7 @@
 // Right-clicks open Herdr's own menu mod, so rename, close, split and worktrees work as in its other layouts.
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { spaces, agents, machines, run, props, setAgentOrder, window, openOverlay, closeOverlay, exec, home } from "herdr";
+import { spaces, agents, machines, run, props, setAgentOrder, window, openOverlay, closeOverlay, exec, home, shared, setShared } from "herdr";
 import * as fs from "fs/promises";
 
 const C = {
@@ -35,16 +35,27 @@ function slab(id, color, label, h, extra) {
   return extra ? extra(el) : el;
 }
 
-// Shepherdr (its web app runs on this computer; its port is in ~/.shepherdr/server.json): what waits on the human, read from
-// GET /api/snapshot every POLL ms. null is "not running", never an error; nothing is drawn before the first answer.
+// Shepherdr is optional (its web app runs on this computer; its port is in ~/.shepherdr/server.json): what waits on the
+// human, read from GET /api/snapshot. Only the sidebar asks; it shares the answer under SHEP so the status arm reads the
+// same one. The answer is an object when Shepherdr runs, "offline" when it is installed but silent, and null when it is
+// not on this computer, which draws nothing and is asked again only every POLL_ABSENT ms. Never an error.
 const POLL = 12000;
+const POLL_ABSENT = 60000;
+const SHEP = "lcars.shepherdr";
 const SHEP_ROWS = 3; // how many tasks the sidebar lists
+const shepState = () => { const s = shared(SHEP); return s && typeof s === "object" ? s : null; };
 async function shepherdr() {
-  let port = 7787;
-  try { port = JSON.parse(await fs.readFile(`${home()}/.shepherdr/server.json`, "utf8")).port || port; } catch {}
+  let port = 7787, installed = false;
+  try {
+    const p = JSON.parse(await fs.readFile(`${home()}/.shepherdr/server.json`, "utf8")).port;
+    installed = true;
+    // only a plain port number: anything else could turn the address into another host
+    if (Number.isInteger(p) && p > 0 && p < 65536) port = p;
+  } catch {}
   const url = `http://127.0.0.1:${port}`;
-  const res = await fetch(`${url}/api/snapshot`);
-  if (!res.ok) return null;
+  let res;
+  try { res = await fetch(`${url}/api/snapshot`); } catch { return installed ? "offline" : null; }
+  if (!res.ok) return installed ? "offline" : null;
   const snap = await res.json();
   const places = new Map((snap.places ?? []).map((p) => [p.id, p]));
   const tasks = (snap.tasks ?? []).filter((t) => places.has(t.place) && !t.archived);
@@ -80,23 +91,24 @@ export default class Lcars extends View {
   init(_props, cx) {
     this.now = Date.now();
     cx.timer.every(15000, (cx) => { this.now = Date.now(); cx.notify(); });
-    // the sidebar and the status arm show Shepherdr; each polls on its own and redraws only when the answer changed
-    this.shep = undefined; // undefined: not asked yet, null: not running
-    const part = _props?.part ?? props()?.part;
-    if (part === "side" || part === "bottom") {
+    // the sidebar asks Shepherdr and shares the answer; setShared redraws every part, so only a changed answer is set
+    if ((_props?.part ?? props()?.part) === "side") {
       this.poll(cx);
       cx.timer.every(POLL, (cx) => this.poll(cx));
     }
   }
 
   poll(cx) {
-    if (this.polling && Date.now() - this.polling < 60000) return; // an earlier ask is still out
-    this.polling = Date.now();
-    cx.spawn(async (cx) => {
+    const now = Date.now();
+    if (this.polling && now - this.polling < 60000) return; // an earlier ask is still out
+    if (this.absent && now - this.asked < POLL_ABSENT) return; // not on this computer: ask rarely
+    this.polling = this.asked = now;
+    cx.spawn(async () => {
       let next = null;
       try { next = await shepherdr(); } catch {}
       this.polling = 0;
-      if (JSON.stringify(next) !== JSON.stringify(this.shep)) { this.shep = next; cx.notify(); }
+      this.absent = next === null;
+      if (JSON.stringify(next) !== JSON.stringify(shared(SHEP) ?? null)) setShared(SHEP, next);
     });
   }
 
@@ -184,11 +196,11 @@ export default class Lcars extends View {
   }
 
   // Shepherdr's blocks for the sidebar: a label slab, three counts, and the first few things waiting on the human.
-  // Clicking any of it opens Shepherdr's web app. Not running: one quiet grey slab; not asked yet: nothing.
+  // Clicking any of it opens Shepherdr's web app. Installed but not running: one quiet grey slab; not installed: nothing.
   shepherdr() {
-    const s = this.shep;
-    if (s === undefined) return [];
-    if (s === null) return [slab("shepherdr-label", C.gray, "shepherdr offline", 26)];
+    if (shared(SHEP) === "offline") return [slab("shepherdr-label", C.gray, "shepherdr offline", 26)];
+    const s = shepState();
+    if (!s) return [];
     const open = () => openUrl(s.url);
     const press = (el) => el.cursor_pointer().hover((st) => st.opacity(0.85)).on_click(open);
     const count = (id, n, word, color) => v_flex().id(id).flex_1().h(46).bg(n ? color : C.gray).justify_end()
@@ -242,6 +254,7 @@ export default class Lcars extends View {
     const count = (s) => crew.filter((a) => a.status === s).length;
     const away = machines().filter((m) => m.name).length;
     const clock = new Date(this.now).toTimeString().slice(0, 5);
+    const shep = shepState();
     const elbow = div().id("menu").w(SIDE).h_full().flex_none().bg(C.gray).rounded_bl(40)
       .flex().items_start().justify_end().px(10).pt(4).text_color(C.black).text_size(13).font_weight(700)
       .cursor_pointer().hover((st) => st.bg(C.violet)).on_click(() => menu("global", {}))
@@ -260,9 +273,9 @@ export default class Lcars extends View {
         .child(div().text_color(C.gold).child(`${two(count("done"))} DONE`))
         .child(div().text_color(C.lilac).child(`${two(away + 1)} MACHINES`))
         // Shepherdr: what waits on the human (needs an answer, or is ready to merge); click opens it. Quiet when it is not running
-        .when(!!this.shep, (el) => el.child(div().id("shepherdr-status").cursor_pointer().on_click(() => openUrl(this.shep.url))
-          .text_color(this.shep.need ? C.red : this.shep.ready ? C.gold : C.gray)
-          .child(`${two(this.shep.need + this.shep.ready)} SHEPHERDR`)))
+        .when(!!shep, (el) => el.child(div().id("shepherdr-status").cursor_pointer().on_click(() => openUrl(shep.url))
+          .text_color(shep.need ? C.red : shep.ready ? C.gold : C.gray)
+          .child(`${two(shep.need + shep.ready)} SHEPHERDR`)))
         .child(div().flex_1())
         .child(div().id("palette").text_color(C.tan).cursor_pointer().on_click(() => run("app.palette"))
           .child(`${window()?.platform === "macos" ? "⌘" : "CTRL"} SHIFT P · ${clock}`)));

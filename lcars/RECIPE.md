@@ -75,14 +75,15 @@ Each agent status shows the same colour in the crew strip, the tab pill and the 
 
 When [Shepherdr](https://github.com/eliasstravik/shepherdr) runs on this computer, the sidebar and the status arm show what waits on you. Both are drawn by `mods/lcars/main.js`.
 
-- **Data:** `GET http://127.0.0.1:<port>/api/snapshot`, the port read from `~/.shepherdr/server.json` (7787 if that file is missing). The mod polls every 12s from `cx.spawn`, so rendering never waits on it, and redraws only when the answer changed. It uses `places`, `tasks` (`status`, `name`, `sub`, `place`, `archived`) and `asks`, and skips archived tasks and tasks of places that no longer exist.
+- **Optional:** Shepherdr is not needed. Without it (no `~/.shepherdr/server.json` and nothing answering on 7787) nothing is drawn and the mod asks only once a minute. Start Shepherdr and its blocks appear within that minute.
+- **Data:** `GET http://127.0.0.1:<port>/api/snapshot`, the port read from `~/.shepherdr/server.json` (7787 if that file is missing or its `port` is not a whole number from 1 to 65535). Only the sidebar asks, every 12s from `cx.spawn`, so rendering never waits on it. It shares the answer as `shared("lcars.shepherdr")`, which the status arm reads, and sets it only when the answer changed. It uses `places`, `tasks` (`status`, `name`, `sub`, `place`, `archived`) and `asks`, and skips archived tasks and tasks of places that no longer exist.
 - **Sidebar, under CREW:**
   - A `SHEPHERDR` label slab: gold, red and pulsing (0.55↔1 every 900ms) while anything needs you.
   - Three count blocks: `NEED YOU` (red, pulsing), `READY` (gold), `WORKING` (blue), each grey at 00. `NEED YOU` is the coordinators' open questions (`asks`) plus tasks with status `need`. `WORKING` is `work` plus `merging`.
   - Up to three rows of what waits on you, questions first, then tasks that need you, then tasks ready to merge, each with a red or gold pill, `ID · NAME` in tan and its status line (the task's `sub`) below. Past three, a grey `+ nn MORE`.
 - **Status arm:** `nn SHEPHERDR` after `MACHINES`, the number of things that need you or are ready to merge. Red when something needs you, gold when only merges are ready, grey at 00.
 - **Click:** the label slab, a count block, a row, `+ nn MORE` and the `SHEPHERDR` count open Shepherdr's address in the default browser (`open` on macOS, `xdg-open` elsewhere).
-- **Offline:** when Shepherdr doesn't answer, the sidebar shows one quiet grey `SHEPHERDR OFFLINE` slab and the status arm shows nothing. Nothing is drawn before the first answer, and an error never shows.
+- **Offline:** when Shepherdr is installed (`~/.shepherdr/server.json` exists) but doesn't answer, the sidebar shows one quiet grey `SHEPHERDR OFFLINE` slab and the status arm shows nothing. An error never shows.
 
 ## Built from
 
@@ -94,7 +95,7 @@ When [Shepherdr](https://github.com/eliasstravik/shepherdr) runs on this compute
   - `bottom`: a block, `{ "px": 44 }`.
 - **One mod, `mods/lcars`** (`{ "place": "none" }`), used by all four blocks. `props().part` picks what it draws: `"top"`, `"side"`, `"tabs"` or `"bottom"`. Its code is one `View` class with a renderer per part. It uses `gpui-kit` `div` and `gpui-base` `h_flex` / `v_flex`.
 - **The machine picker** is the same mod opened as a popup (`openOverlay {mod: "lcars", kind: "popup", frame: "none", props: {part: "machines"}}`), sized 230px wide and 60 + 44 per machine tall. It closes itself with `closeOverlay(props().overlay)` before running `space.new`.
-- **`herdr` functions:** `spaces()`, `agents()`, `machines()`, `window()` (only its `platform`), `props()`, `run()`, `setAgentOrder()`, `openOverlay()` and `closeOverlay()`. It runs no programs and makes no network or file reads.
+- **`herdr` functions:** `spaces()`, `agents()`, `machines()`, `window()` (only its `platform`), `props()`, `run()`, `setAgentOrder()`, `openOverlay()`, `closeOverlay()`, `shared()` and `setShared()`. For Shepherdr only (see above) it also uses `home()`, reads one file (`~/.shepherdr/server.json`), fetches from `127.0.0.1`, and runs `open` or `xdg-open` when you click a Shepherdr block. It reaches nothing outside this computer.
 - **Shipped mods:** `menu` (right-click menus, opened with `props {tab: "space" | "tab" | "pane" | "global", target}`) and `new-menu` (the `+` popup). It replaces the tab bar, the sidebar and the status bar.
 - **Art:** none. Every shape is a coloured `div` with per-corner radii (`rounded_tl`, `rounded_bl`, `rounded_tr`, `rounded_br`, `rounded_l`).
 
