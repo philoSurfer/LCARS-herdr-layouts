@@ -15,6 +15,9 @@ const P = {
 // the frame on red alert: the steel and ice turn red. Status colours stay as they are.
 const RED = { ...P, steel: "#e0503c", ice: "#ffb3a6", slate: "#ff8877", deep: "#3a1512", line: "#5a211b", mute: "#b3594d",
   crimson: "#ffb3a6" };
+// the frame on yellow alert: an agent finished and has not been looked at. The steel and ice turn amber.
+const YELLOW = { ...P, steel: "#d9a441", ice: "#ffe2a8", slate: "#f2c56b", deep: "#2e2410", line: "#4a3a18", mute: "#a8905a",
+  dim: "#c9b488", ink: "#ffe9c2" };
 const STATUS = { working: "#8fc1ff", blocked: "#ff5a47", done: "#f2b24a", idle: "#7f8fd0" };
 const WORD = { working: "WORKING", blocked: "NEEDS YOU", done: "DONE", idle: "STANDING BY" };
 const SHORT = { working: "WRK", blocked: "HAIL", done: "DONE", idle: "STBY" };
@@ -47,7 +50,9 @@ function waiting() {
   return { count: blocked.length, longest: blocked.length ? now - Math.min(...blocked.map((a) => since.get(a.address))) : 0 };
 }
 const alert = () => shared(ALERT) === "red" && agents().some((a) => a.status === "blocked");
-const frame = () => (alert() ? RED : P);
+// yellow alert needs no clock: it is on while any agent is done and unseen, and red alert outranks it
+const yellow = () => !alert() && agents().some((a) => a.status === "done");
+const frame = () => (alert() ? RED : yellow() ? YELLOW : P);
 const chase = (el, on, i) => (on ? el.loop("opacity", { from: 0.35, to: 1, period: 700 + i * 170 }) : el);
 
 // This computer's load, for the title area: one small shell script every SYS ms, never while `herdr-app check` runs.
@@ -81,8 +86,8 @@ const gradient = (from, to) => window.paint_path(RECT(), Background.linear_gradi
 
 // Power-up: a part is drawn once with `on` false, then again 80ms later with it true, and these two carry every block
 // from nothing to its place, the i-th a little after the one before: fixed blocks grow from the left, the rest fade in.
-const grow = (el, on, w, i) => el.w(on ? w : 0).overflow_hidden().transition("width", { duration: 300, delay: i * 40, easing: "ease-out" });
-const fade = (el, on, i) => el.opacity(on ? 1 : 0).transition("opacity", { duration: 280, delay: 120 + i * 40 });
+const grow = (el, on, w, i) => el.w(on ? w : 0).overflow_hidden().transition("width", { duration: 520, delay: i * 70, easing: "ease-out" });
+const fade = (el, on, i) => el.opacity(on ? 1 : 0).transition("opacity", { duration: 480, delay: 200 + i * 70 });
 
 // Materialise: for GLOW ms after an agent stops working, gold columns flicker over its crew row and its cap is gold.
 const GLOW = 2400;
@@ -90,6 +95,16 @@ const GOLD = "#f2b24a";
 const shimmer = (key) => h_flex().absolute().top(0).left(0).size_full().gap(5)
   .children(Array.from({ length: 20 }, (_, i) => div().id(`glow-${key}-${i}`).flex_1().h_full().bg(GOLD)
     .loop("opacity", { from: 0, to: 0.75, period: 260 + ((i * 97) % 420) })));
+
+// Hail: for HAIL ms after an agent starts needing you, two pale rings swell from the middle of its cap and fade as they
+// grow, each at its own pace. A ring is a round outline whose size, place and opacity swing together.
+const HAIL = 8000;
+const ring = (key, n, period) => {
+  const swing = (from, to) => ({ from, to, period, easing: "ease-out" });
+  return div().id(`hail-${key}-${n}`).absolute().rounded_full().border(2).border_color("#ffe3dd") // pale, to show on the red cap
+    .loop("width", swing(6, 60)).loop("height", swing(6, 60))
+    .loop("left", swing(SPINE / 2 - 3, SPINE / 2 - 30)).loop("top", swing(13, -14)).loop("opacity", swing(1, 0));
+};
 
 // a section's heading: a numbered cap on the spine, then a dark strip with the name
 function heading(id, f, n, name, on = true, i = 0) {
@@ -127,6 +142,7 @@ export default class Lcars25 extends View {
       cx.timer.every(WATCH, () => this.watch());
       this.was = new Map(); // agent address -> its status at the last look
       this.glow = new Map(); // agent address -> when it stopped working
+      this.hail = new Map(); // agent address -> when it started needing you
       cx.timer.every(400, (cx) => this.sense(cx));
     }
     this.on = false; // the power-up: every part starts dark
@@ -143,15 +159,20 @@ export default class Lcars25 extends View {
     if (next === "red" && !checking()) playSound("blocked");
   }
 
-  // notes each agent that just stopped working, and redraws only when a glow starts or ends
+  // notes each agent that just stopped working or just started needing you, and redraws only when a glow or a hail
+  // starts or ends
   sense(cx) {
     const now = Date.now();
     let changed = false;
     for (const a of agents()) {
       if (this.was.get(a.address) === "working" && (a.status === "done" || a.status === "idle")) { this.glow.set(a.address, now); changed = true; }
+      const before = this.was.get(a.address);
+      if (before && before !== "blocked" && a.status === "blocked") { this.hail.set(a.address, now); changed = true; }
+      if (a.status !== "blocked" && this.hail.delete(a.address)) changed = true;
       this.was.set(a.address, a.status);
     }
     for (const [k, at] of [...this.glow]) if (now - at > GLOW) { this.glow.delete(k); changed = true; }
+    for (const [k, at] of [...this.hail]) if (now - at > HAIL) { this.hail.delete(k); changed = true; }
     if (changed) cx.notify();
   }
 
@@ -200,6 +221,7 @@ export default class Lcars25 extends View {
     const crew = agents();
     const need = crew.filter((a) => a.status === "blocked").length;
     const working = crew.filter((a) => a.status === "working").length;
+    const done = crew.filter((a) => a.status === "done").length;
     // a soft light that runs along the arm while any agent works, faster with more of them
     const scan = h_flex().id("scan").absolute().top(0).h_full().w(160)
       .child(div().relative().flex_1().h_full().child(gradient("#ffffff00", "#ffffffb0")))
@@ -234,6 +256,8 @@ export default class Lcars25 extends View {
         .when(red, (el) => el.child(div().id("red-alert").flex_none().h(20).px(12).rounded(10).bg(STATUS.blocked).flex().items_center()
           .text_color(P.black).text_size(12).font_weight(700).loop("opacity", { from: 0.45, to: 1, period: 900 })
           .child(`RED ALERT · ${two(need)} ${need === 1 ? "AGENT NEEDS" : "AGENTS NEED"} YOU`)))
+        .when(yellow(), (el) => el.child(div().id("yellow-alert").flex_none().h(20).px(12).rounded(10).bg(STATUS.done).flex().items_center()
+          .text_color(P.black).text_size(12).font_weight(700).child(`YELLOW ALERT · ${two(done)} FINISHED, NOT SEEN`)))
         .child(meter("sys-cpu", "CPU", sys?.cpu ?? 0, STATUS.working))
         .child(meter("sys-mem", "MEM", sys?.mem ?? 0, f.slate))
         .child(div().text_color(P.amber).text_size(11).child(`STARDATE ${stardate(this.now)}`))
@@ -284,7 +308,8 @@ export default class Lcars25 extends View {
             .child(up(`${a.program?.name ?? a.app ?? "agent"} · ${a.tab_name}`)))
           .child(div().text_size(10).text_color(a.status === "blocked" ? c : f.dim).truncate()
             .child(`${WORD[a.status] ?? up(a.status)} · ${up(a.space_name)}`)))
-        .when(lit, (el) => el.child(shimmer(a.address)));
+        .when(lit, (el) => el.child(shimmer(a.address)))
+        .when(this.hail.has(a.address), (el) => el.child(ring(a.address, 0, 1500)).child(ring(a.address, 1, 2300)));
     };
     return v_flex().id("side").size_full().bg(P.bg).gap(GAP).on_mouse_down("right", onRight(globalMenu))
       .child(div().id("side-carry").w(SPINE).h(8).flex_none().bg(f.steel)) // carries the top corner down
