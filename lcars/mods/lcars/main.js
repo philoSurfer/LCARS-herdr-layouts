@@ -34,12 +34,11 @@ function stardate(now) {
 }
 
 // Red alert: an agent has waited on the human for alert_after seconds (the sidebar's prop, 120 by default). The sidebar
-// keeps when each agent was first seen blocked, checks every WATCH ms and shares the answer under ALERT, which redraws
+// keeps when each agent was first seen blocked (in `since`, its own), checks every WATCH ms and shares the answer under ALERT, which redraws
 // every part. The frame is red only while that says so and an agent is still blocked, so answering clears it at once.
 const ALERT = "lcars.alert";
 const WATCH = 5000;
-const since = new Map(); // agent address -> when it was first seen blocked
-function waiting() {
+function waiting(since) { // since: agent address -> when it was first seen blocked
   const now = Date.now();
   const blocked = agents().filter((a) => a.status === "blocked");
   const live = new Set(blocked.map((a) => a.address));
@@ -52,38 +51,52 @@ const frame = () => (alert() ? RED : C);
 // on red alert the arms' slabs pulse, each at its own pace, so the light seems to run along them
 const chase = (el, on, i) => (on ? el.loop("opacity", { from: 0.35, to: 1, period: 700 + i * 170 }) : el);
 
-// This computer's load, for the systems rail: one small shell script every SYS ms, never while `herdr-app check` runs.
-// CPU is every process's share added up over the cores; memory is what is in use (active, wired and compressed on
-// macOS; total less available on Linux); disk is the data volume's.
+// This computer's load, for the systems rail, never while `herdr-app check` runs. What cannot change (the cores, the
+// memory fitted, the page size) is read once by SYS_ONCE. SYS_SCRIPT then runs every SYS ms and reads only what moves;
+// its first argument is the page size, which only macOS gives. CPU is every process's share added up over the cores;
+// memory is what is in use (active, wired and compressed on macOS; total less available on Linux); disk is the data
+// volume's.
 const SYS = 5000;
-const SYS_SCRIPT = String.raw`
+const SYS_ONCE = String.raw`
 case "$(uname)" in
-Darwin)
-  echo "ncpu $(sysctl -n hw.ncpu)"
+Darwin) echo "ncpu $(sysctl -n hw.ncpu)"; echo "memtotal $(sysctl -n hw.memsize)"; echo "pagesize $(sysctl -n hw.pagesize)" ;;
+*) echo "ncpu $(nproc)" ;;
+esac
+`;
+const SYS_SCRIPT = String.raw`
+if [ -n "$1" ]; then
   echo "load $(sysctl -n vm.loadavg | tr -d '{}')"
-  echo "memtotal $(sysctl -n hw.memsize)"
-  vm_stat | awk -v ps="$(sysctl -n hw.pagesize)" '/Pages active|Pages wired down|occupied by compressor/ {gsub(/\./,"",$NF); s+=$NF} END {printf "memused %.0f\n", s*ps}'
-  df -k /System/Volumes/Data 2>/dev/null | awk 'NR==2 {print "disk " $3 " " $3+$4}' ;;
-*)
-  echo "ncpu $(nproc)"
+  vm_stat | awk -v ps="$1" '/Pages active|Pages wired down|occupied by compressor/ {gsub(/\./,"",$NF); s+=$NF} END {printf "memused %.0f\n", s*ps}'
+  df -k /System/Volumes/Data 2>/dev/null | awk 'NR==2 {print "disk " $3 " " $3+$4}'
+else
   echo "load $(cut -d' ' -f1-3 /proc/loadavg)"
   awk '/MemTotal/ {t=$2} /MemAvailable/ {a=$2} END {printf "memtotal %.0f\nmemused %.0f\n", t*1024, (t-a)*1024}' /proc/meminfo
-  df -k / | awk 'NR==2 {print "disk " $3 " " $3+$4}' ;;
-esac
-echo "cpusum $(ps -A -o %cpu= | awk '{s+=$1} END {print s+0}')"
+  df -k / | awk 'NR==2 {print "disk " $3 " " $3+$4}'
+fi
+ps -A -o %cpu= | awk '{s+=$1} END {print "cpusum " s+0}'
 `;
-async function systems() {
-  const r = await exec("sh", ["-c", SYS_SCRIPT], { timeout: 4000 });
+// runs a script and gives its "name number ..." lines as { name: [numbers] }
+async function read(script, ...args) {
+  const r = await exec("sh", ["-c", script, "sh", ...args], { timeout: 4000 });
   const v = {};
   for (const line of r.stdout.split("\n")) { const [k, ...rest] = line.trim().split(/\s+/); if (k) v[k] = rest.map(Number); }
+  return v;
+}
+// one reading; `once` is what SYS_ONCE gave. Throws when the script's answer is not numbers.
+async function systems(once) {
+  const v = { ...once, ...(await read(SYS_SCRIPT, String(once.pagesize?.[0] ?? ""))) };
   const ncpu = v.ncpu?.[0] || 1;
+  if (![v.cpusum?.[0], v.memused?.[0], v.memtotal?.[0]].every(Number.isFinite)) throw new Error("no figures in the script's answer");
   const frac = (a, b) => (b > 0 ? Math.max(0, Math.min(1, a / b)) : 0);
   return {
-    ncpu, cpu: frac(v.cpusum?.[0] ?? 0, ncpu * 100), load: v.load ?? [0, 0, 0],
-    mem: frac(v.memused?.[0], v.memtotal?.[0]), memGb: (v.memused?.[0] ?? 0) / 2 ** 30, memTotalGb: (v.memtotal?.[0] ?? 0) / 2 ** 30,
+    ncpu, cpu: frac(v.cpusum[0], ncpu * 100), load: v.load?.length === 3 && v.load.every(Number.isFinite) ? v.load : [0, 0, 0],
+    mem: frac(v.memused[0], v.memtotal[0]), memGb: v.memused[0] / 2 ** 30, memTotalGb: v.memtotal[0] / 2 ** 30,
     disk: frac(v.disk?.[0], v.disk?.[1]),
   };
 }
+// what the rail prints for a reading: a new reading that prints the same is not worth a redraw
+const figures = (s) => (s ? [s.ncpu, Math.round(s.cpu * 100), Math.round(s.mem * 100), s.memGb.toFixed(1), Math.round(s.disk * 100),
+  ...s.load.map((x) => x.toFixed(1))].join(" ") : "--");
 // the telemetry cascade: rows of made-up numbers, each row stepping through its own list at its own pace
 const CASCADE = Array.from({ length: 40 }, (_, row) => {
   const num = (n) => String(Math.floor(Math.random() * 10 ** n)).padStart(n, "0");
@@ -119,18 +132,28 @@ function newSpace() {
 export default class Lcars extends View {
   init(_props, cx) {
     this.now = Date.now();
-    cx.timer.every(15000, (cx) => { this.now = Date.now(); cx.notify(); });
     const part = _props?.part ?? props()?.part;
-    if (part === "side") cx.timer.every(WATCH, () => this.watch());
+    if (part === "top" || part === "bottom") this.tick(cx); // the two parts that show the time
+    if (part === "side") {
+      this.since = new Map(); // agent address -> when it was first seen blocked
+      // a red alert kept from the last run says nothing now: nobody's wait has been timed yet
+      if (!checking() && shared(ALERT) === "red") setShared(ALERT, "green");
+      cx.timer.every(WATCH, () => this.watch());
+    }
     if (part === "systems" && !checking()) {
       this.measure(cx);
       cx.timer.every(SYS, (cx) => this.measure(cx));
     }
   }
 
+  // the stardate and the clock show minutes, so they are redrawn on the minute and not in between
+  tick(cx) {
+    cx.timer.after(60000 - (Date.now() % 60000) + 20, (cx) => { this.now = Date.now(); cx.notify(); this.tick(cx); });
+  }
+
   // sets the shared alert when it changes; the alert sound plays once, as the frame turns red
   watch() {
-    const w = waiting();
+    const w = waiting(this.since);
     const after = (Number(props()?.alert_after) || 120) * 1000;
     const next = w.count && w.longest >= after ? "red" : "green";
     if (next === (shared(ALERT) ?? "green")) return;
@@ -138,13 +161,25 @@ export default class Lcars extends View {
     if (next === "red" && !checking()) playSound("blocked");
   }
 
+  // takes a reading and redraws only if the rail would print something else. A reading that fails empties the
+  // gauges, so an old figure never stands as the current one, and is logged once until readings work again.
   measure(cx) {
     if (this.measuring && Date.now() - this.measuring < 20000) return; // an earlier reading is still out
     this.measuring = Date.now();
     cx.spawn(async (cx) => {
-      try { this.sys = await systems(); } catch {}
+      let sys = null;
+      try {
+        this.once ??= await read(SYS_ONCE);
+        sys = await systems(this.once);
+        this.failed = false;
+      } catch (e) {
+        if (!this.failed) console.log(`lcars: no load reading: ${e?.message ?? e}`);
+        this.failed = true;
+      }
       this.measuring = 0;
-      cx.notify();
+      const redraw = figures(sys) !== figures(this.sys);
+      this.sys = sys;
+      if (redraw) cx.notify();
     });
   }
 
@@ -205,7 +240,7 @@ export default class Lcars extends View {
     const f = frame();
     const list = spaces();
     const crew = agents();
-    waiting(); // notes when each blocked agent started waiting, for the red alert
+    waiting(this.since); // notes when each blocked agent started waiting, for the red alert
     setAgentOrder(crew.map((a) => a.address));
     const colors = [f.tan, f.lilac, f.peach, f.blue, f.violet];
     const space = (s, i) => {

@@ -32,6 +32,9 @@ const ROW = 24; // a space's row
 const FIRST = 4; // the room above the first row
 const STRIP = 22; // the tab strip's height, which the red cap continues
 const GAP = 2; // background between the segments of a band
+const NEW = 20; // the "+ NEW SPACE" row under the spaces
+const HEAD = 18; // the crew's heading, and the red block on the band it branches from
+const HEAD_TOP = 6; // the room above that heading
 
 const up = (s) => String(s ?? "").toUpperCase();
 const two = (n) => String(n).padStart(2, "0");
@@ -44,49 +47,51 @@ function stardate(now) {
 }
 
 // Red alert: an agent has waited on the human for alert_after seconds (the sidebar's prop, 120 by default). The sidebar
-// keeps when each agent was first seen blocked, checks every WATCH ms and shares the answer under ALERT, which redraws
-// every part. The frame is red only while that says so and an agent is still blocked, so answering clears it at once.
+// notes when each agent started needing you (see track), checks every WATCH ms and shares the answer under ALERT, which
+// redraws every part. The frame is red only while that says so and an agent is still blocked, so answering clears it at
+// once.
 const ALERT = "lcars25.alert";
 const WATCH = 5000;
-const since = new Map(); // agent address -> when it was first seen blocked
-function waiting() {
-  const now = Date.now();
-  const blocked = agents().filter((a) => a.status === "blocked");
-  const live = new Set(blocked.map((a) => a.address));
-  for (const k of [...since.keys()]) if (!live.has(k)) since.delete(k);
-  for (const a of blocked) if (!since.has(a.address)) since.set(a.address, now);
-  return { count: blocked.length, longest: blocked.length ? now - Math.min(...blocked.map((a) => since.get(a.address))) : 0 };
-}
 const alert = () => shared(ALERT) === "red" && agents().some((a) => a.status === "blocked");
 // yellow alert needs no clock: it is on while any agent is done and unseen, and red alert outranks it
 const yellow = () => !alert() && agents().some((a) => a.status === "done");
 const frame = () => (alert() ? RED : P);
 
-// This computer's load, for the title area: one small shell script every SYS ms, never while `herdr-app check` runs.
+// This computer's load, for the title area, never while `herdr-app check` runs. What cannot change (the cores, the
+// memory fitted, the page size) is read once by SYS_ONCE. SYS_SCRIPT then runs every SYS ms and reads only what moves;
+// its first argument is the page size, which only macOS gives.
 const SYS = 5000;
-const SYS_SCRIPT = String.raw`
+const SYS_ONCE = String.raw`
 case "$(uname)" in
-Darwin)
-  echo "ncpu $(sysctl -n hw.ncpu)"
-  echo "memtotal $(sysctl -n hw.memsize)"
-  vm_stat | awk -v ps="$(sysctl -n hw.pagesize)" '/Pages active|Pages wired down|occupied by compressor/ {gsub(/\./,"",$NF); s+=$NF} END {printf "memused %.0f\n", s*ps}' ;;
-*)
-  echo "ncpu $(nproc)"
-  awk '/MemTotal/ {t=$2} /MemAvailable/ {a=$2} END {printf "memtotal %.0f\nmemused %.0f\n", t*1024, (t-a)*1024}' /proc/meminfo ;;
+Darwin) echo "ncpu $(sysctl -n hw.ncpu)"; echo "memtotal $(sysctl -n hw.memsize)"; echo "pagesize $(sysctl -n hw.pagesize)" ;;
+*) echo "ncpu $(nproc)" ;;
 esac
-echo "cpusum $(ps -A -o %cpu= | awk '{s+=$1} END {print s+0}')"
 `;
-async function systems() {
-  const r = await exec("sh", ["-c", SYS_SCRIPT], { timeout: 4000 });
+const SYS_SCRIPT = String.raw`
+if [ -n "$1" ]; then
+  vm_stat | awk -v ps="$1" '/Pages active|Pages wired down|occupied by compressor/ {gsub(/\./,"",$NF); s+=$NF} END {printf "memused %.0f\n", s*ps}'
+else
+  awk '/MemTotal/ {t=$2} /MemAvailable/ {a=$2} END {printf "memtotal %.0f\nmemused %.0f\n", t*1024, (t-a)*1024}' /proc/meminfo
+fi
+ps -A -o %cpu= | awk '{s+=$1} END {print "cpusum " s+0}'
+`;
+// runs a script and gives its "name number ..." lines as { name: [numbers] }
+async function read(script, ...args) {
+  const r = await exec("sh", ["-c", script, "sh", ...args], { timeout: 4000 });
   const v = {};
   for (const line of r.stdout.split("\n")) { const [k, ...rest] = line.trim().split(/\s+/); if (k) v[k] = rest.map(Number); }
-  const ncpu = v.ncpu?.[0] || 1;
-  const frac = (a, b) => (b > 0 ? Math.max(0, Math.min(1, a / b)) : 0);
-  return {
-    cpu: frac(v.cpusum?.[0] ?? 0, ncpu * 100),
-    mem: frac(v.memused?.[0], v.memtotal?.[0]), memGb: (v.memused?.[0] ?? 0) / 2 ** 30,
-  };
+  return v;
 }
+// one reading, as shares between 0 and 1; `once` is what SYS_ONCE gave. Throws when the script's answer is not numbers.
+async function systems(once) {
+  const v = { ...once, ...(await read(SYS_SCRIPT, String(once.pagesize?.[0] ?? ""))) };
+  const cpusum = v.cpusum?.[0], used = v.memused?.[0], total = v.memtotal?.[0], ncpu = v.ncpu?.[0] || 1;
+  if (![cpusum, used, total].every(Number.isFinite) || !(total > 0)) throw new Error("no figures in the script's answer");
+  const frac = (x) => Math.max(0, Math.min(1, x));
+  return { cpu: frac(cpusum / (ncpu * 100)), mem: frac(used / total) };
+}
+// what the meters print for a reading: a new reading that prints the same is not worth a redraw
+const figures = (sys) => (sys ? `${Math.round(sys.cpu * 100)} ${Math.round(sys.mem * 100)}` : "--");
 // a layer that fills its (relative) parent with a left-to-right gradient
 const RECT = () => PathBuilder.fill().move_to("0%", "0%").line_to("100%", "0%").line_to("100%", "100%").line_to("0%", "100%").close().build();
 const gradient = (from, to) => window.paint_path(RECT(), Background.linear_gradient(90, from, to)).absolute().top(0).left(0).size_full();
@@ -149,63 +154,101 @@ export default class Lcars25 extends View {
     this.now = Date.now();
     const part = _props?.part ?? props()?.part;
     if (part === "title") {
-      cx.timer.every(15000, (cx) => { this.now = Date.now(); cx.notify(); });
+      this.tick(cx);
       if (!checking()) { this.measure(cx); cx.timer.every(SYS, (cx) => this.measure(cx)); }
     }
     if (part === "side") {
-      cx.timer.every(WATCH, () => this.watch());
       this.was = new Map(); // agent address -> its status at the last look
+      this.since = new Map(); // agent address -> when it started needing you, for as long as it does
       this.glow = new Map(); // agent address -> when it stopped working
-      this.hail = new Map(); // agent address -> when it started needing you
-      cx.timer.every(400, (cx) => this.sense(cx));
+      this.hail = new Map(); // agent address -> when it started needing you, for HAIL ms
+      // a red alert kept from the last run says nothing now: nobody's wait has been timed yet
+      if (!checking() && shared(ALERT) === "red") setShared(ALERT, "green");
+      cx.timer.every(WATCH, (cx) => this.watch(cx));
     }
-    this.on = false; // the power-up: every part starts dark
-    cx.timer.after(80, (cx) => { this.on = true; cx.notify(); });
+    // the power-up: every part of the frame starts dark. A pane's header and the popup have nothing to bring in.
+    this.on = part === "pane" || part === "machines";
+    if (!this.on) cx.timer.after(80, (cx) => { this.on = true; cx.notify(); });
   }
 
-  // sets the shared alert when it changes; the alert sound plays once, as the frame turns red
-  watch() {
-    const w = waiting();
+  // the clock shows minutes, so it is redrawn on the minute and not in between
+  tick(cx) {
+    cx.timer.after(60000 - (Date.now() % 60000) + 20, (cx) => { this.now = Date.now(); cx.notify(); this.tick(cx); });
+  }
+
+  // Looks at every agent's status against the last look, and notes what follows from a change: when it started needing
+  // you (for the red alert and the hail) and when it finished (for the glow). Herdr redraws the sidebar whenever an
+  // agent changes, so side() calls this as it draws and nothing has to poll; a timer started here ends each glow and
+  // hail. Returns true when a glow or a hail started or ended, which is when a caller that is not drawing must redraw.
+  track(cx) {
+    const now = Date.now();
+    const live = new Set();
+    let changed = false;
+    const end = (ms) => cx.timer.after(ms + 30, (cx) => { if (this.track(cx)) cx.notify(); });
+    for (const a of agents()) {
+      live.add(a.address);
+      const before = this.was.get(a.address);
+      if (before === a.status) continue;
+      this.was.set(a.address, a.status);
+      if (a.status === "blocked") {
+        this.since.set(a.address, now);
+        if (before) { this.hail.set(a.address, now); end(HAIL); changed = true; } // not one that was waiting when we started
+      } else {
+        this.since.delete(a.address);
+        if (this.hail.delete(a.address)) changed = true;
+      }
+      // from working, or from needing you: an agent that was answered and finished between two looks never shows as working
+      if ((before === "working" || before === "blocked") && (a.status === "done" || a.status === "idle")) {
+        this.glow.set(a.address, now); end(GLOW); changed = true;
+      }
+    }
+    for (const [k, at] of [...this.glow]) if (now - at >= GLOW) { this.glow.delete(k); changed = true; }
+    for (const [k, at] of [...this.hail]) if (now - at >= HAIL) { this.hail.delete(k); changed = true; }
+    // an agent that has gone leaves nothing behind
+    for (const m of [this.was, this.since, this.glow, this.hail]) for (const k of [...m.keys()]) if (!live.has(k)) m.delete(k);
+    return changed;
+  }
+
+  // sets the shared alert when it changes; the alert sound plays once, as the frame turns red. It looks at the agents
+  // itself first, in case the sidebar was hidden and not drawn when one changed.
+  watch(cx) {
+    if (this.track(cx)) cx.notify();
+    const now = Date.now();
+    const longest = Math.max(0, ...[...this.since.values()].map((at) => now - at));
     const after = (Number(props()?.alert_after) || 120) * 1000;
-    const next = w.count && w.longest >= after ? "red" : "green";
+    const next = this.since.size && longest >= after ? "red" : "green";
     if (next === (shared(ALERT) ?? "green")) return;
     setShared(ALERT, next);
     if (next === "red" && !checking()) playSound("blocked");
   }
 
-  // notes each agent that just stopped working or just started needing you, and redraws only when a glow or a hail
-  // starts or ends
-  sense(cx) {
-    const now = Date.now();
-    let changed = false;
-    for (const a of agents()) {
-      const before = this.was.get(a.address);
-      // from working, or from needing you: an agent that was answered and finished between two looks never shows as working
-      if ((before === "working" || before === "blocked") && (a.status === "done" || a.status === "idle")) { this.glow.set(a.address, now); changed = true; }
-      if (before && before !== "blocked" && a.status === "blocked") { this.hail.set(a.address, now); changed = true; }
-      if (a.status !== "blocked" && this.hail.delete(a.address)) changed = true;
-      this.was.set(a.address, a.status);
-    }
-    for (const [k, at] of [...this.glow]) if (now - at > GLOW) { this.glow.delete(k); changed = true; }
-    for (const [k, at] of [...this.hail]) if (now - at > HAIL) { this.hail.delete(k); changed = true; }
-    if (changed) cx.notify();
-  }
-
+  // takes a reading and redraws only if the meters would print something else. A reading that fails empties the
+  // meters, so an old figure never stands as the current one, and is logged once until readings work again.
   measure(cx) {
     if (this.measuring && Date.now() - this.measuring < 20000) return; // an earlier reading is still out
     this.measuring = Date.now();
     cx.spawn(async (cx) => {
-      try { this.sys = await systems(); } catch {}
+      let sys = null;
+      try {
+        this.once ??= await read(SYS_ONCE);
+        sys = await systems(this.once);
+        this.failed = false;
+      } catch (e) {
+        if (!this.failed) console.log(`lcars25: no load reading: ${e?.message ?? e}`);
+        this.failed = true;
+      }
       this.measuring = 0;
-      cx.notify();
+      const redraw = figures(sys) !== figures(this.sys);
+      this.sys = sys;
+      if (redraw) cx.notify();
     });
   }
 
-  render() {
+  render(cx) {
     const part = props()?.part;
     const draw = { sidetop: "sideTop", side: "side", sidebot: "sideBottom", tabs: "tabs", title: "title", cap: "cap", band: "band",
       bottom: "bottom", corner: "corner", port: "port", pane: "pane", machines: "machines" }[part];
-    return draw ? this[draw]() : div().child(`lcars25: unknown part ${part}`);
+    return draw ? this[draw](cx) : div().child(`lcars25: unknown part ${part}`);
   }
 
   machines() {
@@ -240,11 +283,12 @@ export default class Lcars25 extends View {
   }
 
   // The sidebar: the loop's two sides, with spaces then crew between them, every label set to the right.
-  side() {
+  side(cx) {
     const f = frame(), on = this.on;
     const list = spaces();
     const crew = agents();
-    waiting(); // notes when each blocked agent started waiting, for the red alert
+    this.track(cx); // notes who just started needing you and who just finished, for the alert, the hail and the glow
+    const atWork = crew.some((a) => a.status === "working");
     setAgentOrder(crew.map((a) => a.address));
     const space = (s, i) => {
       const hail = s.status === "blocked" && !s.active;
@@ -253,8 +297,9 @@ export default class Lcars25 extends View {
       return fade(h_flex().id(`space-${s.id}`).relative().w_full().h(ROW).flex_none().items_center().gap(6).pl(6).cursor_pointer()
         .bg(s.active ? f.light : hail ? P.red : P.black), on, 2 + i)
         .when(s.active, (el) => el.child(gradient(f.glint, f.light))) // lighter at the left, settling into the bridge's colour
-        // alive, quietly: the shown space's light drifts along its row, and a space at work elsewhere glows towards the bridge
-        .when(s.active, (el) => el.child(breath(`space-drift-${s.id}`, P.white, f.light, 0.45, 4200)))
+        // alive, quietly, while any agent works: the shown space's light drifts along its row, and a space at work
+        // elsewhere glows towards the bridge. With the whole crew at rest nothing moves, so the window can rest too.
+        .when(s.active && atWork, (el) => el.child(breath(`space-drift-${s.id}`, P.white, f.light, 0.45, 4200)))
         .when(busy && !lit, (el) => el.child(breath(`space-work-${s.id}`, P.black, f.dark, 0.7, 2600 + (i % 4) * 400)))
         .hover((st) => st.opacity(0.8))
         .when(hail, (el) => el.loop("opacity", { from: 0.5, to: 1, period: 900 }))
@@ -288,23 +333,23 @@ export default class Lcars25 extends View {
           .when(a.status === "blocked", (el) => el.loop("opacity", { from: 0.35, to: 1, period: 700 })));
     };
     // where the crew's heading starts, measured as the rows above it are laid out
-    const crewAt = FIRST + list.length * (ROW + GAP) + 20 + GAP + 6;
+    const crewAt = FIRST + list.length * (ROW + GAP) + NEW + GAP + HEAD_TOP;
     return h_flex().id("side").size_full().bg(P.bg).on_mouse_down("right", onRight(globalMenu))
       // the loop's left side changes along its length: dark beside the spaces, a red block where the crew's heading
       // branches off it, then a narrower grey band with a thin line beside it
       .child(v_flex().w(T).h_full().flex_none().gap(GAP)
         .child(div().w_full().h(crewAt - GAP).flex_none().bg(f.dark))
-        .child(div().w_full().h(18).flex_none().bg(f.accent))
+        .child(div().w_full().h(HEAD).flex_none().bg(f.accent))
         .child(h_flex().w_full().flex_1().gap(GAP).child(div().w(8).h_full().bg(f.mid)).child(div().w(2).h_full().bg(f.dark))))
       .child(v_flex().relative().flex_1().min_w(0).h_full().bg(P.black).pl(GAP).pt(FIRST).gap(GAP).overflow_hidden()
         // an homage, kept very quiet: a delta in the lower left, barely above black
         .child(svg("mods/lcars25/delta.svg").absolute().left(14).bottom(10).w(84).h(100).text_color(f.ghost))
         .children(list.map(space))
-        .child(h_flex().id("space-new").w_full().h(20).flex_none().items_center().justify_end().pr(10)
+        .child(h_flex().id("space-new").w_full().h(NEW).flex_none().items_center().justify_end().pr(10)
           .text_color(f.mid).text_size(10).font_weight(700).cursor_pointer().hover((st) => st.text_color(f.light))
           .on_click(() => newSpace()).on_mouse_down("right", onRight(newSpace)).child("+ NEW SPACE"))
         // the crew's heading: a bar of the band's colour across the panel, the label and the count at its right
-        .child(fade(h_flex().id("crew-heading").w_full().h(18).flex_none().mt(6).mb(2).items_center().gap(8), on, 3 + list.length)
+        .child(fade(h_flex().id("crew-heading").w_full().h(HEAD).flex_none().mt(HEAD_TOP).mb(2).items_center().gap(8), on, 3 + list.length)
           .child(div().flex_1().h(T).bg(f.dark)) // it meets the red block on the band: a branch
           .child(div().flex_none().text_color(f.light).text_size(11).font_weight(700).child("CREW"))
           .child(div().flex_none().pr(10).text_color(P.red).text_size(15).font_weight(700).child(two(crew.length))))
