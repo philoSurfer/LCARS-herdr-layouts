@@ -79,11 +79,24 @@ async function systems() {
 const RECT = () => PathBuilder.fill().move_to("0%", "0%").line_to("100%", "0%").line_to("100%", "100%").line_to("0%", "100%").close().build();
 const gradient = (from, to) => window.paint_path(RECT(), Background.linear_gradient(90, from, to)).absolute().top(0).left(0).size_full();
 
+// Power-up: a part is drawn once with `on` false, then again 80ms later with it true, and these two carry every block
+// from nothing to its place, the i-th a little after the one before: fixed blocks grow from the left, the rest fade in.
+const grow = (el, on, w, i) => el.w(on ? w : 0).overflow_hidden().transition("width", { duration: 300, delay: i * 40, easing: "ease-out" });
+const fade = (el, on, i) => el.opacity(on ? 1 : 0).transition("opacity", { duration: 280, delay: 120 + i * 40 });
+
+// Materialise: for GLOW ms after an agent stops working, gold columns flicker over its crew row and its cap is gold.
+const GLOW = 2400;
+const GOLD = "#f2b24a";
+const shimmer = (key) => h_flex().absolute().top(0).left(0).size_full().gap(5)
+  .children(Array.from({ length: 20 }, (_, i) => div().id(`glow-${key}-${i}`).flex_1().h_full().bg(GOLD)
+    .loop("opacity", { from: 0, to: 0.75, period: 260 + ((i * 97) % 420) })));
+
 // a section's heading: a numbered cap on the spine, then a dark strip with the name
-function heading(id, f, n, name) {
-  const cap = div().w(SPINE).h_full().flex_none().bg(f.slate).flex().items_center().justify_end().pr(6)
-    .text_color(P.black).text_size(11).font_weight(700).child(two(n));
-  const strip = h_flex().flex_1().h_full().bg(f.deep).items_center().px(8).text_color(f.ink).text_size(11).font_weight(700).child(up(name));
+function heading(id, f, n, name, on = true, i = 0) {
+  const cap = grow(div().id(`${id}-cap`).h_full().flex_none().bg(f.slate).flex().items_center().justify_end().pr(6)
+    .text_color(P.black).text_size(11).font_weight(700).child(two(n)), on, SPINE, i);
+  const strip = fade(h_flex().id(`${id}-strip`).flex_1().h_full().bg(f.deep).items_center().px(8).text_color(f.ink).text_size(11)
+    .font_weight(700).child(up(name)), on, i);
   return h_flex().id(id).w_full().h(16).flex_none().gap(GAP).child(cap.rounded_l(8)).child(strip);
 }
 
@@ -110,7 +123,14 @@ export default class Lcars25 extends View {
       cx.timer.every(15000, (cx) => { this.now = Date.now(); cx.notify(); });
       if (!checking()) { this.measure(cx); cx.timer.every(SYS, (cx) => this.measure(cx)); }
     }
-    if (part === "side") cx.timer.every(WATCH, () => this.watch());
+    if (part === "side") {
+      cx.timer.every(WATCH, () => this.watch());
+      this.was = new Map(); // agent address -> its status at the last look
+      this.glow = new Map(); // agent address -> when it stopped working
+      cx.timer.every(400, (cx) => this.sense(cx));
+    }
+    this.on = false; // the power-up: every part starts dark
+    cx.timer.after(80, (cx) => { this.on = true; cx.notify(); });
   }
 
   // sets the shared alert when it changes; the alert sound plays once, as the frame turns red
@@ -121,6 +141,18 @@ export default class Lcars25 extends View {
     if (next === (shared(ALERT) ?? "green")) return;
     setShared(ALERT, next);
     if (next === "red" && !checking()) playSound("blocked");
+  }
+
+  // notes each agent that just stopped working, and redraws only when a glow starts or ends
+  sense(cx) {
+    const now = Date.now();
+    let changed = false;
+    for (const a of agents()) {
+      if (this.was.get(a.address) === "working" && (a.status === "done" || a.status === "idle")) { this.glow.set(a.address, now); changed = true; }
+      this.was.set(a.address, a.status);
+    }
+    for (const [k, at] of [...this.glow]) if (now - at > GLOW) { this.glow.delete(k); changed = true; }
+    if (changed) cx.notify();
   }
 
   measure(cx) {
@@ -163,7 +195,7 @@ export default class Lcars25 extends View {
   }
 
   top() {
-    const f = frame(), red = alert();
+    const f = frame(), red = alert(), on = this.on;
     const space = spaces().find((s) => s.active);
     const crew = agents();
     const need = crew.filter((a) => a.status === "blocked").length;
@@ -182,14 +214,15 @@ export default class Lcars25 extends View {
         .child(div().id(id).h_full().w(Math.round(64 * (sys ? share : 0))).bg(share > 0.85 ? STATUS.blocked : color)
           .transition("width", { duration: 900, easing: "ease-out" })));
     const arm = h_flex().w_full().h(ARM).flex_none().gap(GAP)
-      .child(chase(div().id("top-arm-0").w(140).h_full().bg(f.steel), red, 0))
-      .child(chase(div().id("top-arm-1").w(36).h_full().bg(f.ice), red, 1))
-      .child(chase(div().id("top-arm-2").relative().flex_1().h_full().overflow_hidden().child(gradient(f.steel, f.slate))
-        .when(working > 0 && !red, (el) => el.child(scan)), red, 2))
-      .child(chase(div().id("top-arm-3").w(64).h_full().bg(f.crimson), red, 3))
-      .child(chase(div().id("top-arm-4").w(28).h_full().bg(f.steel).rounded_tr(5).rounded_br(5), red, 4));
-    const hairline = h_flex().w_full().h(2).flex_none().gap(GAP).mt(2)
-      .child(div().w(140).h_full().bg(f.steel)).child(div().flex_1().h_full().bg(f.line)).child(div().w(95).h_full().bg(f.crimson));
+      .child(chase(grow(div().id("top-arm-0").h_full().bg(f.steel), on, 140, 0), red, 0))
+      .child(chase(grow(div().id("top-arm-1").h_full().bg(f.ice), on, 36, 2), red, 1))
+      .child(chase(div().id("top-arm-2").relative().flex_1().h_full().overflow_hidden()
+        .child(fade(div().id("top-arm-2-fill").relative().size_full().child(gradient(f.steel, f.slate)), on, 3))
+        .when(working > 0 && !red && on, (el) => el.child(scan)), red, 2))
+      .child(chase(grow(div().id("top-arm-3").h_full().bg(f.crimson), on, 64, 6), red, 3))
+      .child(chase(grow(div().id("top-arm-4").h_full().bg(f.steel).rounded_tr(5).rounded_br(5), on, 28, 8), red, 4));
+    const hairline = fade(h_flex().id("top-hairline").w_full().h(2).flex_none().gap(GAP).mt(2)
+      .child(div().w(140).h_full().bg(f.steel)).child(div().flex_1().h_full().bg(f.line)).child(div().w(95).h_full().bg(f.crimson)), on, 6);
     // the concave inner corner: the background with a rounded top-left corner, over the corner's colour
     const title = div().w_full().flex_1().min_h(0).bg(f.steel).child(
       h_flex().size_full().bg(P.bg).rounded_tl(16).items_center().gap(12).pr(8)
@@ -206,12 +239,12 @@ export default class Lcars25 extends View {
         .child(div().text_color(P.amber).text_size(11).child(`STARDATE ${stardate(this.now)}`))
         .child(div().text_color(f.ink).text_size(13).font_weight(700).child(new Date(this.now).toTimeString().slice(0, 5))));
     return h_flex().id("top").size_full().bg(P.bg).on_mouse_down("right", onRight(globalMenu))
-      .child(div().w(SPINE).h_full().flex_none().bg(f.steel).rounded_tl(30))
+      .child(div().id("top-corner").w(SPINE).h_full().flex_none().bg(f.steel).rounded_tl(30))
       .child(v_flex().flex_1().h_full().min_w(0).child(arm).child(hairline).child(title));
   }
 
   side() {
-    const f = frame();
+    const f = frame(), on = this.on;
     const list = spaces();
     const crew = agents();
     waiting(); // notes when each blocked agent started waiting, for the red alert
@@ -223,44 +256,49 @@ export default class Lcars25 extends View {
         .hover((st) => st.opacity(0.8))
         .on_click(() => run("space.select", { id: s.id }))
         .on_mouse_down("right", onRight(() => menu("space", { id: s.id })))
-        .child(div().w(SPINE).h_full().flex_none().bg(hail ? STATUS.blocked : s.active ? f.ice : caps[i % caps.length]).rounded_l(15)
-          .flex().items_center().justify_end().pr(6).text_color(P.black).text_size(12).font_weight(700)
+        .child(grow(div().id(`space-cap-${s.id}`).h_full().flex_none().bg(hail ? STATUS.blocked : s.active ? f.ice : caps[i % caps.length])
+          .rounded_l(15).flex().items_center().justify_end().pr(6).text_color(P.black).text_size(12).font_weight(700), on, SPINE, 1 + i)
           .when(hail && !s.active, (el) => el.loop("opacity", { from: 0.5, to: 1, period: 900 }))
           .child(`${two(s.index)}${s.machine ? "·" + up(s.machine).slice(0, 3) : ""}`))
-        .child(h_flex().relative().flex_1().min_w(0).h_full().bg(s.active ? f.ice : f.deep).items_center().justify_between().px(8).gap(6)
+        .child(fade(h_flex().id(`space-strip-${s.id}`).relative().flex_1().min_w(0).h_full().bg(s.active ? f.ice : f.deep)
+          .items_center().justify_between().px(8).gap(6), on, 1 + i)
           .when(s.active, (el) => el.child(gradient(f.slate, f.ice)))
           .child(div().relative().text_color(s.active ? P.black : f.ink).text_size(13).font_weight(700).truncate().child(up(s.name)))
           .when(!!STATUS[s.status] && s.status !== "idle" && !s.active, (el) => el
             .child(div().w(6).h(6).flex_none().rounded(3).bg(STATUS[s.status]))));
     };
-    const member = (a) => {
-      const c = STATUS[a.status] ?? f.mute;
-      return h_flex().id(`agent-${a.address}`).w_full().h(32).flex_none().gap(GAP).cursor_pointer()
+    const member = (a, i) => {
+      const lit = this.glow.has(a.address); // it just stopped working
+      const c = lit ? GOLD : STATUS[a.status] ?? f.mute;
+      const at = list.length + 3 + i;
+      return h_flex().id(`agent-${a.address}`).relative().w_full().h(32).flex_none().gap(GAP).cursor_pointer()
         .hover((st) => st.opacity(0.8))
         .on_click(() => run("agent.focus", { terminal: a.address }))
         .on_mouse_down("right", onRight(() => menu("pane", { pane: a.pane, terminal: a.address })))
-        .child(div().w(SPINE).h_full().flex_none().bg(c).rounded_l(16).flex().items_center().justify_end().pr(6)
-          .text_color(P.black).text_size(10).font_weight(700)
+        .child(grow(div().id(`agent-cap-${a.address}`).h_full().flex_none().bg(c).rounded_l(16).flex().items_center().justify_end().pr(6)
+          .text_color(P.black).text_size(10).font_weight(700), on, SPINE, at)
           .when(a.status === "blocked", (el) => el.loop("opacity", { from: 0.4, to: 1, period: 700 }))
-          .child(SHORT[a.status] ?? ""))
-        .child(v_flex().flex_1().min_w(0).h_full().justify_center().pl(8).pr(6)
+          .child(lit ? "DONE" : SHORT[a.status] ?? ""))
+        .child(fade(v_flex().id(`agent-text-${a.address}`).flex_1().min_w(0).h_full().justify_center().pl(8).pr(6), on, at)
           .child(div().text_size(12).font_weight(700).text_color(a.focused ? f.ice : f.ink).truncate()
             .child(up(`${a.program?.name ?? a.app ?? "agent"} · ${a.tab_name}`)))
           .child(div().text_size(10).text_color(a.status === "blocked" ? c : f.dim).truncate()
-            .child(`${WORD[a.status] ?? up(a.status)} · ${up(a.space_name)}`)));
+            .child(`${WORD[a.status] ?? up(a.status)} · ${up(a.space_name)}`)))
+        .when(lit, (el) => el.child(shimmer(a.address)));
     };
     return v_flex().id("side").size_full().bg(P.bg).gap(GAP).on_mouse_down("right", onRight(globalMenu))
-      .child(div().w(SPINE).h(8).flex_none().bg(f.steel)) // carries the top corner down
-      .child(heading("spaces-label", f, list.length, "spaces"))
+      .child(div().id("side-carry").w(SPINE).h(8).flex_none().bg(f.steel)) // carries the top corner down
+      .child(heading("spaces-label", f, list.length, "spaces", on, 0))
       .children(list.map(space))
       .child(h_flex().id("space-new").w_full().h(22).flex_none().gap(GAP).cursor_pointer().hover((st) => st.opacity(0.7))
         .on_click(() => newSpace()).on_mouse_down("right", onRight(newSpace))
-        .child(div().w(SPINE).h_full().flex_none().bg(f.line).rounded_l(11).flex().items_center().justify_end().pr(6)
-          .text_color(f.ink).text_size(14).font_weight(700).child("+"))
-        .child(div().flex_1().h_full().flex().items_center().px(8).text_color(f.dim).text_size(11).font_weight(700).child("NEW SPACE")))
-      .child(heading("crew-label", f, crew.length, "crew"))
+        .child(grow(div().id("space-new-cap").h_full().flex_none().bg(f.line).rounded_l(11).flex().items_center().justify_end().pr(6)
+          .text_color(f.ink).text_size(14).font_weight(700).child("+"), on, SPINE, list.length + 1))
+        .child(fade(div().id("space-new-text").flex_1().h_full().flex().items_center().px(8).text_color(f.dim).text_size(11).font_weight(700)
+          .child("NEW SPACE"), on, list.length + 1)))
+      .child(heading("crew-label", f, crew.length, "crew", on, list.length + 2))
       .children(crew.map(member))
-      .child(div().w(SPINE).flex_1().min_h(8).bg(f.steel)); // the spine, down to the bottom corner
+      .child(fade(div().id("spine").w(SPINE).flex_1().min_h(8).bg(f.steel), on, list.length + crew.length + 3)); // the spine, down to the bottom corner
   }
 
   tabs() {
@@ -297,7 +335,7 @@ export default class Lcars25 extends View {
   }
 
   bottom() {
-    const f = frame(), red = alert();
+    const f = frame(), red = alert(), on = this.on;
     const crew = agents();
     const count = (s) => crew.filter((a) => a.status === s).length;
     const away = machines().filter((m) => m.name).length;
@@ -318,10 +356,11 @@ export default class Lcars25 extends View {
         .child(div().id("palette").flex_none().text_color(f.dim).cursor_pointer().hover((st) => st.opacity(0.7))
           .on_click(() => run("app.palette")).child(`${appWindow()?.platform === "macos" ? "⌘" : "CTRL"} SHIFT P`)));
     const arm = h_flex().w_full().h(8).flex_none().gap(GAP)
-      .child(chase(div().id("bottom-arm-0").w(120).h_full().bg(f.mute), red, 4))
-      .child(chase(div().id("bottom-arm-1").relative().flex_1().h_full().overflow_hidden().child(gradient(f.slate, f.steel)), red, 3))
-      .child(chase(div().id("bottom-arm-2").w(80).h_full().bg(f.ice), red, 2))
-      .child(chase(div().id("bottom-arm-3").w(30).h_full().bg(f.crimson).rounded_tr(4).rounded_br(4), red, 1));
+      .child(chase(grow(div().id("bottom-arm-0").h_full().bg(f.mute), on, 120, 0), red, 4))
+      .child(chase(div().id("bottom-arm-1").relative().flex_1().h_full().overflow_hidden()
+        .child(fade(div().id("bottom-arm-1-fill").relative().size_full().child(gradient(f.slate, f.steel)), on, 3)), red, 3))
+      .child(chase(grow(div().id("bottom-arm-2").h_full().bg(f.ice), on, 80, 6), red, 2))
+      .child(chase(grow(div().id("bottom-arm-3").h_full().bg(f.crimson).rounded_tr(4).rounded_br(4), on, 30, 8), red, 1));
     return h_flex().id("bottom").size_full().bg(P.bg).on_mouse_down("right", onRight(globalMenu))
       .child(corner)
       .child(v_flex().flex_1().h_full().min_w(0).child(status).child(arm));

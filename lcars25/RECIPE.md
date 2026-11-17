@@ -28,6 +28,8 @@ Status colours: working `#8fc1ff`, blocked `#ff5a47`, done `#f2b24a`, idle `#7f8
 - **Scanner:** while any agent works, a soft white light runs back and forth along the top arm, faster with more agents working (`loop("left")` on a 160px gradient pair; the period is 11s less 1.5s per working agent, at least 4s).
 - **CPU and memory:** every 5s the top bar runs one shell script (`sh -c`) from `cx.spawn`, never while `herdr-app check` loads the mod. On macOS it reads `sysctl`, `vm_stat` and `ps`; elsewhere `nproc`, `/proc/meminfo` and `ps`. CPU is every process's share added up and divided over the cores.
 - **Red alert, clicks and right-clicks:** as in LCARS 1.0. The alert's shared key is `lcars25.alert`. On red alert the steel and ice turn red.
+- **Power-up:** when the layout loads, the frame draws itself in under a second. Every part is drawn once dark, then again 80ms later, and native transitions carry each block to its place: the fixed blocks of the arms and every cap on the spine grow from the left (`transition("width")`, 300ms), the strips, gradients, hairline and spine fade in (`transition("opacity")`, 280ms), each row 40ms after the one above it.
+- **Materialise:** when an agent stops working (its status goes from `working` to `done` or `idle`), its crew row shows a gold cap reading `DONE` and twenty thin gold columns that flicker over the row (`loop("opacity")`, each at its own period) for 2.4s, then it settles. The sidebar looks for this every 400ms and redraws only when a glow starts or ends.
 - **Clock and stardate** update every 15s.
 
 ## Built from
@@ -43,3 +45,4 @@ Status colours: working `#8fc1ff`, blocked `#ff5a47`, done `#f2b24a`, idle `#7f8
 4. Each pane shows its header, and the focused pane's cap is ice.
 5. `CPU` and `MEM` show figures in the title area within 5 seconds.
 6. Red alert behaves as in LCARS 1.0.
+7. Switching to the layout draws the frame in from the left. An agent that stops working glows gold in the crew list for about two seconds.
