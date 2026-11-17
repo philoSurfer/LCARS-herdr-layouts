@@ -181,8 +181,9 @@ export default class Lcars25 extends View {
     const now = Date.now();
     let changed = false;
     for (const a of agents()) {
-      if (this.was.get(a.address) === "working" && (a.status === "done" || a.status === "idle")) { this.glow.set(a.address, now); changed = true; }
       const before = this.was.get(a.address);
+      // from working, or from needing you: an agent that was answered and finished between two looks never shows as working
+      if ((before === "working" || before === "blocked") && (a.status === "done" || a.status === "idle")) { this.glow.set(a.address, now); changed = true; }
       if (before && before !== "blocked" && a.status === "blocked") { this.hail.set(a.address, now); changed = true; }
       if (a.status !== "blocked" && this.hail.delete(a.address)) changed = true;
       this.was.set(a.address, a.status);
@@ -390,9 +391,12 @@ export default class Lcars25 extends View {
           .transition("width", { duration: 900, easing: "ease-out" })));
     // on red alert a row of bars beside the words, each pulsing at its own pace, as on the alert displays
     // otherwise one row of them sits dark and still
+    const busy = spaces().find((sp) => sp.active)?.tabs.find((t) => t.active)?.status === "working";
     const bars = (side) => h_flex().flex_none().gap(5).children(Array.from({ length: 9 }, (_, i) =>
-      div().id(`alert-bar-${side}-${i}`).w(5).h(13).bg(red ? P.red : i % 3 === 2 ? f.mid2 : f.dark)
-        .when(red, (el) => el.loop("opacity", { from: 0.2, to: 1, period: 600 + i * 110 }))));
+      div().id(`alert-bar-${side}-${red ? "red" : busy ? "busy" : "still"}-${i}`).w(5).h(13).bg(red ? P.red : busy ? f.mid : i % 3 === 2 ? f.mid2 : f.dark)
+        .when(red, (el) => el.loop("opacity", { from: 0.2, to: 1, period: 600 + i * 110 }))
+        // while an agent in the shown tab is working the bars come up to grey and breathe, each at its own slow pace
+        .when(busy && !red, (el) => el.loop("opacity", { from: 0.3, to: 1, period: 1500 + ((i * 5) % 9) * 190, easing: "ease-in-out" }))));
     // the loop's left edge starts here, under the strip's corner: the band's colour with the panel's curve cut into it
     return div().id("title").size_full().bg(f.dark).pl(T).on_mouse_down("right", onRight(globalMenu)).child(v_flex().size_full().bg(P.bg).rounded_tl(r)
       .child(fade(v_flex().id("hairlines").w_full().flex_none().pt(3).pl(r).gap(3), on, 2)
