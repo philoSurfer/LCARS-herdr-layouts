@@ -101,14 +101,18 @@ const breath = (id, from, to_, to, period) => div().id(id).absolute().top(0).lef
 const grow = (el, on, w, i) => el.w(on ? w : 0).overflow_hidden().transition("width", { duration: 520, delay: i * 70, easing: "ease-out" });
 const fade = (el, on, i) => el.opacity(on ? 1 : 0).transition("opacity", { duration: 480, delay: 200 + i * 70 });
 
-// Materialise: for GLOW ms after an agent finishes, a soft amber wash rises from the left towards its light and
-// sinks again, behind the words, with a hairline under the row. Nothing covers the text.
+// Materialise: for GLOW ms after an agent finishes, its crew row sparkles like a transporter beam: specks of amber
+// and white scattered across the row, each winking at its own pace, most small and a few larger and fainter. They
+// are drawn behind the words, so the text stays legible.
 const GLOW = 2400;
-const shimmer = (key) => [
-  breath(`glow-${key}`, P.black, P.amber, 0.3, GLOW / 2),
-  div().id(`glow-line-${key}`).absolute().left(0).bottom(0).w_full().h(1).bg(P.amber)
-    .loop("opacity", { from: 0, to: 0.8, period: GLOW / 2, easing: "ease-in-out" }),
-];
+const rnd = (n) => { const x = Math.sin(n * 127.1) * 43758.5453; return x - Math.floor(x); }; // a steady scatter, 0 to 1
+const shimmer = (key) => Array.from({ length: 40 }, (_, i) => {
+  const big = i % 7 === 0, size = big ? 4 : i % 3 ? 2 : 1;
+  return div().id(`speck-${key}-${i}`).absolute().rounded_full()
+    .left(3 + Math.floor(rnd(i * 2 + 1) * (INNER - 10))).top(1 + Math.floor(rnd(i * 2 + 2) * 26)).w(size).h(size)
+    .bg(i % 4 === 1 ? P.white : P.amber)
+    .loop("opacity", { from: 0, to: big ? 0.45 : 0.95, period: 140 + ((i * 61) % 420) });
+});
 
 // Hail: for HAIL ms after an agent starts needing you, two rings swell from its status light and fade as they grow,
 // each at its own pace. A ring is a round outline whose size, place and opacity swing together. It is placed from a
@@ -454,6 +458,7 @@ export default class Lcars25 extends View {
     const crew = agents();
     const count = (s) => crew.filter((a) => a.status === s).length;
     const working = count("working");
+    const here = spaces().find((sp) => sp.active)?.tabs.find((t) => t.active)?.status === "working";
     const away = machines().filter((m) => m.name).length;
     const item = (color, text) => div().flex_none().text_color(color).child(text);
     const scan = h_flex().id("scan").absolute().top(0).h_full().w(200)
@@ -470,7 +475,7 @@ export default class Lcars25 extends View {
       .child(h_flex().w_full().h(T).flex_none().gap(GAP + 1)
         .child(grow(div().id("lower-0").h_full().flex_none().bg(f.dark).rounded_bl(T), on, 180, 6))
         .child(fade(div().id("lower-1").relative().flex_1().h_full().bg(f.mid).overflow_hidden(), on, 7)
-          .when(working > 0 && on, (el) => el.child(scan))));
+          .when(here && on, (el) => el.child(scan)))); // only while the shown tab itself is at work
   }
 
   // each pane's header: the program on a small cap (lit when the pane has the keyboard), its title, and the git branch
