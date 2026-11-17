@@ -23,7 +23,9 @@ const T = 12; // a band's thickness
 const R = 24; // a loop's outer corner
 const r = 12; // and its inner one
 const SIDE = 232; // the sidebar's width (the layout's too)
-const INNER = SIDE - 2 * T - 12; // the width of a row inside the sidebar's loop
+const INNER = SIDE - 2 * T - 6; // the width of a row inside the sidebar's loop
+const ROW = 24; // a space's row
+const FIRST = 4; // the room above the first row
 const STRIP = 22; // the tab strip's height, which the red cap continues
 const GAP = 2; // background between the segments of a band
 
@@ -106,6 +108,19 @@ const ring = (key, n, period) => {
     .loop("left", swing(INNER - 5, INNER - 27)).loop("top", swing(12, -10)).loop("opacity", swing(1, 0));
 };
 
+// Embedding: the shown space is part of the frame, not a highlight inside it. Where its row meets a vertical band the
+// band is light, not dark, so the row runs on through the sidebar's loop and into the terminals' loop as one bridge.
+// `plug` draws such a band: `color` all the way down, but light for the height of the row numbered `at`.
+function plug(id, f, at, color) {
+  const band = v_flex().id(id).w(T).h_full().flex_none().gap(GAP);
+  if (at < 0) return band.child(div().w_full().flex_1().bg(color));
+  const y = FIRST + at * (ROW + GAP);
+  return band
+    .child(div().w_full().h(y - GAP).flex_none().bg(color))
+    .child(div().id(`${id}-bridge`).w_full().h(ROW).flex_none().bg(f.light))
+    .child(div().w_full().flex_1().bg(color));
+}
+
 // Herdr's menu mod at the pointer: tab is "space", "tab", "pane" or "global"
 const menu = (tab, target) => openOverlay({ mod: "menu", kind: "popup", width: 200, height: 260, props: { tab, target } });
 // Herdr's new menu: a terminal, each installed agent, a new space, worktrees
@@ -180,7 +195,7 @@ export default class Lcars25 extends View {
   render() {
     const part = props()?.part;
     const draw = { sidetop: "sideTop", side: "side", sidebot: "sideBottom", tabs: "tabs", title: "title", cap: "cap", band: "band",
-      bottom: "bottom", corner: "corner", pane: "pane", machines: "machines" }[part];
+      bottom: "bottom", corner: "corner", port: "port", pane: "pane", machines: "machines" }[part];
     return draw ? this[draw]() : div().child(`lcars25: unknown part ${part}`);
   }
 
@@ -225,7 +240,7 @@ export default class Lcars25 extends View {
     const space = (s, i) => {
       const hail = s.status === "blocked" && !s.active;
       const lit = s.active || hail;
-      return fade(h_flex().id(`space-${s.id}`).w_full().h(24).flex_none().items_center().gap(6).pl(6).cursor_pointer()
+      return fade(h_flex().id(`space-${s.id}`).w_full().h(ROW).flex_none().items_center().gap(6).pl(6).cursor_pointer()
         .bg(s.active ? f.light : hail ? P.red : P.black), on, 2 + i)
         .hover((st) => st.opacity(0.8))
         .when(hail, (el) => el.loop("opacity", { from: 0.5, to: 1, period: 900 }))
@@ -255,8 +270,9 @@ export default class Lcars25 extends View {
         .when(glow, (el) => el.child(shimmer(a.address)))
         .when(this.hail.has(a.address), (el) => el.child(ring(a.address, 0, 1500)).child(ring(a.address, 1, 2300)));
     };
-    return div().id("side").size_full().bg(f.dark).px(T).on_mouse_down("right", onRight(globalMenu)).child(
-      v_flex().size_full().bg(P.black).px(6).pt(4).gap(GAP).overflow_hidden()
+    return h_flex().id("side").size_full().bg(P.bg).on_mouse_down("right", onRight(globalMenu))
+      .child(div().w(T).h_full().flex_none().bg(f.dark))
+      .child(v_flex().flex_1().min_w(0).h_full().bg(P.black).pl(6).pt(FIRST).gap(GAP).overflow_hidden()
         .children(list.map(space))
         .child(h_flex().id("space-new").w_full().h(20).flex_none().items_center().justify_end().pr(10)
           .text_color(f.mid).text_size(10).font_weight(700).cursor_pointer().hover((st) => st.text_color(f.light))
@@ -266,7 +282,14 @@ export default class Lcars25 extends View {
           .child(div().flex_1().h(T).bg(f.dark).rounded_l(6))
           .child(div().flex_none().text_color(f.light).text_size(11).font_weight(700).child("CREW"))
           .child(div().flex_none().pr(10).text_color(P.red).text_size(15).font_weight(700).child(two(crew.length))))
-        .children(crew.map(member)));
+        .children(crew.map(member)))
+      .child(plug("side-edge", f, list.findIndex((s) => s.active), f.dark));
+  }
+
+  // The left edge of the terminals' loop: dark, and light where the shown space's row arrives from the sidebar.
+  port() {
+    const f = frame();
+    return plug("port", f, spaces().findIndex((s) => s.active), f.dark).bg(P.bg);
   }
 
   // The bottom of the sidebar's loop, with MENU and the gear (Herdr's settings) inside its curve.
@@ -298,7 +321,7 @@ export default class Lcars25 extends View {
       const hail = t.status === "blocked" && !t.active;
       return grow(h_flex().id(`tab-${t.id}`).h_full().flex_none().bg(t.active ? f.light : hail ? P.red : f.mid).items_end().justify_end()
         .gap(6).px(10).pb(2).text_color(P.black).text_size(11).font_weight(700).cursor_pointer(), on, Math.max(120, 60 + up(t.name).length * 7), i)
-        .when(i === 0, (el) => el.rounded_l(STRIP / 2))
+        .when(i === 0, (el) => el.rounded_tl(STRIP - 2))
         .hover((st) => st.opacity(0.8))
         .when(hail, (el) => el.loop("opacity", { from: 0.5, to: 1, period: 800 }))
         .on_click(() => run("tab.select", { id: t.id }))
@@ -311,9 +334,12 @@ export default class Lcars25 extends View {
       .children(shown.map(seg))
       .child(h_flex().id("tab-new").h_full().w(40).flex_none().bg(f.mid).items_end().justify_end().px(10).pb(1)
         .text_color(P.black).text_size(15).font_weight(700).cursor_pointer().hover((st) => st.bg(f.light))
-        .when(!shown.length, (el) => el.rounded_l(STRIP / 2))
+        .when(!shown.length, (el) => el.rounded_tl(STRIP - 2))
         .on_click(() => newMenu()).on_mouse_down("right", onRight(newMenu)).child("+"))
-      .child(fade(div().id("tab-run").flex_1().h_full().bg(f.dark), on, shown.length + 1));
+      // the dark run, with a black card set into it: the shown space's number, machine and tab count in red
+      .child(fade(h_flex().id("tab-run").flex_1().min_w(0).h_full().bg(f.dark).items_center().justify_end().pr(12), on, shown.length + 1)
+        .child(div().flex_none().h(16).px(8).bg(P.black).flex().items_center().text_color(P.red).text_size(10).font_weight(700)
+          .child(space ? `${two(space.index)} · ${up(space.machine ?? "this computer")} · ${two(shown.length)} TABS` : "")));
   }
 
   // Under the strip: two hairlines, then a line with the alerts at the left and, set to the right, the load, the
@@ -335,10 +361,12 @@ export default class Lcars25 extends View {
     // on red alert a row of bars beside the words, each pulsing at its own pace, as on the alert displays
     const bars = (side) => h_flex().flex_none().gap(5).children(Array.from({ length: 9 }, (_, i) =>
       div().id(`alert-bar-${side}-${i}`).w(5).h(13).bg(P.red).loop("opacity", { from: 0.2, to: 1, period: 600 + i * 110 })));
-    return v_flex().id("title").size_full().bg(P.bg).on_mouse_down("right", onRight(globalMenu))
-      .child(fade(v_flex().id("hairlines").w_full().flex_none().pt(3).gap(3), on, 2)
-        .child(div().w_full().h(2).bg(f.light)).child(div().w_full().h(1).bg(f.mid)))
-      .child(h_flex().w_full().flex_1().min_h(0).items_center().gap(14).pl(4).pr(8)
+    // the loop's left edge starts here, under the strip's corner: the band's colour with the panel's curve cut into it
+    return div().id("title").size_full().bg(f.dark).pl(T).on_mouse_down("right", onRight(globalMenu)).child(v_flex().size_full().bg(P.bg).rounded_tl(r)
+      .child(fade(v_flex().id("hairlines").w_full().flex_none().pt(3).pl(r).gap(3), on, 2)
+        .child(h_flex().w_full().h(2).gap(GAP).child(div().flex_1().h_full().bg(f.light)).child(div().w(280).h_full().bg(f.accent)))
+        .child(div().w_full().h(1).bg(f.mid)))
+      .child(h_flex().w_full().flex_1().min_h(0).items_center().gap(14).pl(r).pr(8)
         .when(red, (el) => el.child(bars("l"))
           .child(div().flex_none().text_color(P.red).text_size(15).font_weight(700)
             .child(`ALERT CONDITION: RED · ${two(need)} ${need === 1 ? "AGENT NEEDS" : "AGENTS NEED"} YOU`))
@@ -350,7 +378,7 @@ export default class Lcars25 extends View {
         .child(meter("sys-mem", "MEM", sys?.mem ?? 0))
         .child(div().flex_none().text_color(f.mid).text_size(10).child(stardate(this.now)))
         .child(div().flex_none().text_color(f.light).text_size(13).font_weight(700).child(new Date(this.now).toTimeString().slice(0, 5)))
-        .child(fade(div().id("space-name").flex_none().text_color(P.red).text_size(17).font_weight(700).child(up(space?.name ?? "HERDR")), on, 3)));
+        .child(fade(div().id("space-name").flex_none().text_color(P.red).text_size(17).font_weight(700).child(up(space?.name ?? "HERDR")), on, 3))));
   }
 
   // The loop's top-right corner, in the accent: as tall as the strip across the top, a band's width down the side.
@@ -363,8 +391,12 @@ export default class Lcars25 extends View {
   // The loop's right edge: the accent carries on down from the cap, then the band is mid grey to the corner.
   band() {
     const f = frame(), on = this.on;
+    // between the accent and the grey, a ladder of ticks: one per agent, in its status colour
+    const tick = (a) => div().id(`tick-${a.address}`).w_full().h(8).flex_none().bg(STATUS[a.status] ?? f.dark)
+      .when(a.status === "blocked", (el) => el.loop("opacity", { from: 0.3, to: 1, period: 700 }));
     return v_flex().id("band").size_full().bg(P.bg).gap(GAP + 1)
       .child(fade(div().id("band-accent").w_full().h(150).flex_none().bg(f.accent), on, 5))
+      .children(agents().map(tick))
       .child(fade(div().id("band-rest").w_full().flex_1().bg(f.mid), on, 7));
   }
 
@@ -388,13 +420,14 @@ export default class Lcars25 extends View {
       .child(div().relative().flex_1().h_full().child(gradient("#ffffffe0", "#ffffff00")))
       .loop("left", { from: -200, to: 1800, period: Math.max(4000, 11000 - working * 1500), easing: "linear" });
     return v_flex().id("bottom").size_full().bg(P.bg).on_mouse_down("right", onRight(globalMenu))
-      .child(h_flex().w_full().flex_1().min_h(0).items_center().justify_end().gap(16).pl(8).pr(8).text_size(11).font_weight(700)
+      .child(div().w_full().flex_1().min_h(0).bg(f.dark).pl(T).child(h_flex().size_full().bg(P.bg).rounded_bl(r).items_center().justify_end()
+        .gap(16).pl(8).pr(8).text_size(11).font_weight(700)
         .child(item(f.light, `${two(working)} WORKING`))
         .child(item(count("blocked") ? P.red : f.mid, `${two(count("blocked"))} NEED YOU`))
         .child(item(count("done") ? P.amber : f.mid, `${two(count("done"))} DONE`))
-        .child(item(f.mid, `${two(away + 1)} MACHINES`)))
+        .child(item(f.mid, `${two(away + 1)} MACHINES`))))
       .child(h_flex().w_full().h(T).flex_none().gap(GAP + 1)
-        .child(grow(div().id("lower-0").h_full().flex_none().bg(f.light).rounded_l(6), on, 180, 6))
+        .child(grow(div().id("lower-0").h_full().flex_none().bg(f.dark).rounded_bl(T), on, 180, 6))
         .child(fade(div().id("lower-1").relative().flex_1().h_full().bg(f.mid).overflow_hidden(), on, 7)
           .when(working > 0 && on, (el) => el.child(scan))));
   }

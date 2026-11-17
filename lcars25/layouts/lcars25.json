@@ -142,11 +142,24 @@
           }
         },
         {
+          "id": "port",
+          "type": "block",
+          "size": {
+            "px": 12
+          },
+          "content": {
+            "mod": "lcars25",
+            "props": {
+              "part": "port"
+            }
+          }
+        },
+        {
           "id": "work",
           "type": "column",
           "padding": [
             4,
-            4
+            2
           ],
           "resizable": false,
           "children": [

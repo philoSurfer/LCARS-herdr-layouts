@@ -24,20 +24,24 @@ Bands are 12px thick. A loop's outer corners are 24px, its inner ones 12px. Piec
 
 1. **Top, 60px.** Three pieces in a row.
    - **Over the sidebar, 232px:** a 22px mid-grey tab with a 24px top-left corner and the machine's name at its lower right (the window buttons sit on it on macOS), then the top of the sidebar's loop: dark, curving down both sides around `SPACES` and the count in red.
-   - **Over the terminals:** the tab strip, 22px: one bar cut into segments, each at least 120px wide with `nn NAME` in 11px black at its lower right. The shown tab is light, the others mid grey, one that needs you red and pulsing; a working or finished tab has a small square before its name. The first segment has a round left end. Then a 40px `+` segment and a dark run filling the rest. Under the strip, a 2px light hairline and a 1px mid one, then a line with the alerts at the left and, set to the right, the `CPU` and `MEM` meters, the stardate, the clock and the shown space's name in 17px red.
+   - **Over the terminals:** the tab strip, 22px: one bar cut into segments, each at least 120px wide with `nn NAME` in 11px black at its lower right. The shown tab is light, the others mid grey, one that needs you red and pulsing; a working or finished tab has a small square before its name. The first segment has a 20px top-left corner, where the loop's left band comes down from it. Then a 40px `+` segment and a dark run filling the rest, with a black card set into its right end: the shown space's number, machine and tab count in 10px red. Under the strip, a 2px light hairline whose last 280px are red, and a 1px mid one, then a line with the alerts at the left and, set to the right, the `CPU` and `MEM` meters, the stardate, the clock and the shown space's name in 17px red.
    - **The cap, 40px:** red, with a 24px top-right corner. It is as tall as the strip across the top and 12px wide down the side, with a 12px inner curve.
 2. **Middle.**
    - **Sidebar, 232px:** the loop's two dark sides. Between them, one 24px row per space (index at the left in mid grey, name set to the right, a 4px tick at the right edge that lights when the space has work or a finished agent). The shown space's row is light with black text; one that needs you is red and pulses. Then `+ NEW SPACE`, a heading for the crew (a dark bar, `CREW` and the count in red), and one 30px row per agent: `PROGRAM · TAB` and `STATUS · SPACE` set to the right, and a 4px status tick.
+   - **Left edge of the terminals' loop, 12px:** dark.
    - **Terminals:** panes with a 1px dark border, light when focused, 8px radius, 6px gap, each with a 20px header (the program on a small cap, the status word, the title, the git branch in red).
    - **Right edge, 12px:** red for the first 150px, continuing the cap, then mid grey.
 3. **Bottom, 44px.**
    - Under the sidebar: the bottom of its loop, with the gear, `MENU` and `⌘ SHIFT P` inside the curve.
-   - Under the terminals: a status line set to the right (`nn WORKING`, `nn NEED YOU`, `nn DONE`, `nn MACHINES`), then the lower band: light for 180px with a round left end, then mid grey.
+   - Under the terminals: a status line set to the right (`nn WORKING`, `nn NEED YOU`, `nn DONE`, `nn MACHINES`), then the lower band: dark for 180px with a round bottom-left corner, then mid grey. The left band runs down beside the status line, with a 12px inner curve.
    - The corner, 40px: mid grey with a 24px bottom-right corner and a 12px inner curve.
 
 Status colours: working light, blocked red, done amber, idle mid.
 
 ## How it behaves
+
+- **Embedding:** the shown space is part of the frame, not a highlight inside it. Its row is light and reaches the sidebar loop's right band, and for the height of that row the band is light too, as is the left band of the terminals' loop beside it. So the row runs through one loop and into the other as a single bridge, broken only by the gaps between pieces. Both bands find the row the same way: 4px above the first row, then 26px per row.
+- **Agent ladder:** on the right edge, between the red and the grey, one 8px tick per agent in its status colour; one that needs you pulses.
 
 - **Power-up:** when the layout loads, every part is drawn once dark, then again 80ms later, and native transitions bring it in over about a second and a half: the tab segments and the lower band's light end grow from the left (`transition("width")`, 520ms), the loops, hairlines, cap and bands fade in (`transition("opacity")`, 480ms), each 70ms after the one before.
 - **Scanner:** while any agent works, a soft white light runs back and forth along the lower band, faster with more agents working (`loop("left")` on a 200px gradient pair; the period is 11s less 1.5s per working agent, at least 4s).
@@ -53,9 +57,9 @@ Status colours: working light, blocked red, done amber, idle mid.
 
 - **`layouts/lcars25.json`:** a root `column`, `"titlebar": "none"`, `"traffic_lights": [12, 4]`, the palette in `colors`, `"ui_font": "Antonio"`. Its children are three rows, each with `"gap": 4`:
   - `top` (`{ "px": 60 }`): `sidetop` (232px, `window_drag`), a column `head` of `tabs` (22px) and `title` (`window_drag`), and `cap` (40px, `window_drag`).
-  - `body`: `sidebar` (232px, with the `alert_after` prop), `work` (a column with padding 4 holding `main`, whose pane has a `header`, `{ "content": { "mod": "lcars25", "props": { "part": "pane" } }, "height": 20 }`), and `band` (12px).
+  - `body`: `sidebar` (232px, with the `alert_after` prop), `port` (12px), `work` (a column with padding 4 with padding 4 by 2 holding `main`, whose pane has a `header`, `{ "content": { "mod": "lcars25", "props": { "part": "pane" } }, "height": 20 }`), and `band` (12px).
   - `foot` (`{ "px": 44 }`): `sidebot` (232px), `bottom`, and `corner` (40px).
-- **One mod, `mods/lcars25`**, with parts `sidetop`, `side`, `sidebot`, `tabs`, `title`, `cap`, `band`, `bottom`, `corner`, `pane` and the `machines` popup. A band's inner curve is a background-coloured child with one rounded corner, set over the band's colour. It runs one program, the load script above, and makes no network or file reads.
+- **One mod, `mods/lcars25`**, with parts `sidetop`, `side`, `sidebot`, `tabs`, `title`, `cap`, `band`, `bottom`, `corner`, `port`, `pane` and the `machines` popup. A band's inner curve is a background-coloured child with one rounded corner, set over the band's colour. It runs one program, the load script above, and makes no network or file reads.
 
 ## Done when
 
