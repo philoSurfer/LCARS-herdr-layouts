@@ -14,9 +14,13 @@ import { spaces, agents, machines, panes, run, props, setAgentOrder, window as a
 const P = {
   bg: "#000000", black: "#000000", panel: "#111419", dark: "#2f3749", mid: "#6d748c", light: "#9ea5ba", red: "#e7442a",
   white: "#e6e9f2", amber: "#f2b24a", accent: "#e7442a", // accent: the stretch of the loop that is red
+  glint: "#b9bfd0", // a shade lighter than light: where a lit slab's gradient ends
+  mid2: "#5f667d", // a shade darker than mid: every other segment of a band, so neighbours differ a little
+  ghost: "#171b26", // barely above black: the watermark
 };
 // the frame on red alert: the light grey turns red, as on the ALERT CONDITION: RED displays. Status colours stay.
-const RED = { ...P, light: "#e7442a", mid: "#b8321c", dark: "#7d2012", accent: "#ffb8a8" };
+const RED = { ...P, light: "#e7442a", mid: "#b8321c", dark: "#7d2012", accent: "#ffb8a8", glint: "#ff6a4d", mid2: "#a32c18",
+  ghost: "#2a0b06" };
 const STATUS = { working: "#9ea5ba", blocked: "#e7442a", done: "#f2b24a", idle: "#6d748c" };
 const WORD = { working: "WORKING", blocked: "NEEDS YOU", done: "DONE", idle: "STANDING BY" };
 const T = 12; // a band's thickness
@@ -99,13 +103,14 @@ const shimmer = (key) => h_flex().absolute().top(0).left(0).size_full().gap(5)
     .loop("opacity", { from: 0, to: 0.75, period: 260 + ((i * 97) % 420) })));
 
 // Hail: for HAIL ms after an agent starts needing you, two rings swell from its status light and fade as they grow,
-// each at its own pace. A ring is a round outline whose size, place and opacity swing together.
+// each at its own pace. A ring is a round outline whose size, place and opacity swing together. It is placed from a
+// holder of no width just left of the tick, so its small offsets keep it centred whatever the zoom.
 const HAIL = 8000;
 const ring = (key, n, period) => {
   const swing = (from, to) => ({ from, to, period, easing: "ease-out" });
   return div().id(`hail-${key}-${n}`).absolute().rounded_full().border(2).border_color(P.red)
     .loop("width", swing(6, 50)).loop("height", swing(6, 50))
-    .loop("left", swing(INNER - 5, INNER - 27)).loop("top", swing(12, -10)).loop("opacity", swing(1, 0));
+    .loop("left", swing(5, -17)).loop("top", swing(9, -13)).loop("opacity", swing(1, 0));
 };
 
 // Embedding: the shown space is part of the frame, not a highlight inside it. Where its row meets a vertical band the
@@ -240,23 +245,24 @@ export default class Lcars25 extends View {
     const space = (s, i) => {
       const hail = s.status === "blocked" && !s.active;
       const lit = s.active || hail;
-      return fade(h_flex().id(`space-${s.id}`).w_full().h(ROW).flex_none().items_center().gap(6).pl(6).cursor_pointer()
+      return fade(h_flex().id(`space-${s.id}`).relative().w_full().h(ROW).flex_none().items_center().gap(6).pl(6).cursor_pointer()
         .bg(s.active ? f.light : hail ? P.red : P.black), on, 2 + i)
+        .when(s.active, (el) => el.child(gradient(f.glint, f.light))) // lighter at the left, settling into the bridge's colour
         .hover((st) => st.opacity(0.8))
         .when(hail, (el) => el.loop("opacity", { from: 0.5, to: 1, period: 900 }))
         .on_click(() => run("space.select", { id: s.id }))
         .on_mouse_down("right", onRight(() => menu("space", { id: s.id })))
-        .child(div().flex_none().text_color(lit ? P.black : f.mid).text_size(10).font_weight(700)
+        .child(div().relative().flex_none().text_color(lit ? P.black : f.mid).text_size(10).font_weight(700)
           .child(`${two(s.index)}${s.machine ? " · " + up(s.machine).slice(0, 4) : ""}`))
-        .child(div().flex_1().min_w(0).flex().justify_end().text_color(lit ? P.black : f.light).text_size(12).font_weight(700)
+        .child(div().relative().flex_1().min_w(0).flex().justify_end().text_color(lit ? P.black : f.light).text_size(12).font_weight(700)
           .child(div().truncate().child(up(s.name))))
         // the tick at the right edge: lit when something in the space is working or done
-        .child(div().w(4).h_full().flex_none().bg(s.status === "done" ? P.amber : s.status === "working" ? (s.active ? P.black : f.light) : lit ? P.black : f.dark));
+        .child(div().relative().w(4).h_full().flex_none().bg(s.status === "done" ? P.amber : s.status === "working" ? (s.active ? P.black : f.light) : lit ? P.black : f.dark));
     };
     const member = (a) => {
       const glow = this.glow.has(a.address); // it just stopped working
       const c = glow ? P.amber : STATUS[a.status] ?? f.mid;
-      return h_flex().id(`agent-${a.address}`).relative().w_full().h(30).flex_none().gap(6).items_center().cursor_pointer()
+      return h_flex().id(`agent-${a.address}`).relative().w_full().h(30).flex_none().gap(6).items_center().pl(4).cursor_pointer()
         .hover((st) => st.opacity(0.8))
         .on_click(() => run("agent.focus", { terminal: a.address }))
         .on_mouse_down("right", onRight(() => menu("pane", { pane: a.pane, terminal: a.address })))
@@ -265,21 +271,31 @@ export default class Lcars25 extends View {
             .child(up(`${a.program?.name ?? a.app ?? "agent"} · ${a.tab_name}`)))
           .child(div().max_w_full().text_size(9).text_color(a.status === "blocked" || glow ? c : f.mid).truncate()
             .child(`${glow ? "DONE" : WORD[a.status] ?? up(a.status)} · ${up(a.space_name)}`)))
+        .child(div().relative().w(0).h(24).flex_none()
+          .when(this.hail.has(a.address), (el) => el.child(ring(a.address, 0, 1500)).child(ring(a.address, 1, 2300))))
         .child(div().id(`agent-light-${a.address}`).w(4).h(24).flex_none().bg(c)
           .when(a.status === "blocked", (el) => el.loop("opacity", { from: 0.35, to: 1, period: 700 })))
-        .when(glow, (el) => el.child(shimmer(a.address)))
-        .when(this.hail.has(a.address), (el) => el.child(ring(a.address, 0, 1500)).child(ring(a.address, 1, 2300)));
+        .when(glow, (el) => el.child(shimmer(a.address)));
     };
+    // where the crew's heading starts, measured as the rows above it are laid out
+    const crewAt = FIRST + list.length * (ROW + GAP) + 20 + GAP + 6;
     return h_flex().id("side").size_full().bg(P.bg).on_mouse_down("right", onRight(globalMenu))
-      .child(div().w(T).h_full().flex_none().bg(f.dark))
-      .child(v_flex().flex_1().min_w(0).h_full().bg(P.black).pl(6).pt(FIRST).gap(GAP).overflow_hidden()
+      // the loop's left side changes along its length: dark beside the spaces, a red block where the crew's heading
+      // branches off it, then a narrower grey band with a thin line beside it
+      .child(v_flex().w(T).h_full().flex_none().gap(GAP)
+        .child(div().w_full().h(crewAt - GAP).flex_none().bg(f.dark))
+        .child(div().w_full().h(18).flex_none().bg(f.accent))
+        .child(h_flex().w_full().flex_1().gap(GAP).child(div().w(8).h_full().bg(f.mid)).child(div().w(2).h_full().bg(f.dark))))
+      .child(v_flex().relative().flex_1().min_w(0).h_full().bg(P.black).pl(GAP).pt(FIRST).gap(GAP).overflow_hidden()
+        // an homage, kept very quiet: a delta in the lower left, barely above black
+        .child(svg("mods/lcars25/delta.svg").absolute().left(14).bottom(10).w(84).h(100).text_color(f.ghost))
         .children(list.map(space))
         .child(h_flex().id("space-new").w_full().h(20).flex_none().items_center().justify_end().pr(10)
           .text_color(f.mid).text_size(10).font_weight(700).cursor_pointer().hover((st) => st.text_color(f.light))
           .on_click(() => newSpace()).on_mouse_down("right", onRight(newSpace)).child("+ NEW SPACE"))
         // the crew's heading: a bar of the band's colour across the panel, the label and the count at its right
         .child(fade(h_flex().id("crew-heading").w_full().h(18).flex_none().mt(6).mb(2).items_center().gap(8), on, 3 + list.length)
-          .child(div().flex_1().h(T).bg(f.dark).rounded_l(6))
+          .child(div().flex_1().h(T).bg(f.dark)) // it meets the red block on the band: a branch
           .child(div().flex_none().text_color(f.light).text_size(11).font_weight(700).child("CREW"))
           .child(div().flex_none().pr(10).text_color(P.red).text_size(15).font_weight(700).child(two(crew.length))))
         .children(crew.map(member)))
@@ -319,16 +335,20 @@ export default class Lcars25 extends View {
     const shown = (space?.tabs ?? []).filter((t) => !t.settled);
     const seg = (t, i) => {
       const hail = t.status === "blocked" && !t.active;
-      return grow(h_flex().id(`tab-${t.id}`).h_full().flex_none().bg(t.active ? f.light : hail ? P.red : f.mid).items_end().justify_end()
+      return grow(h_flex().id(`tab-${t.id}`).relative().h_full().flex_none().bg(t.active ? f.light : hail ? P.red : i % 2 ? f.mid2 : f.mid).items_end().justify_end()
         .gap(6).px(10).pb(2).text_color(P.black).text_size(11).font_weight(700).cursor_pointer(), on, Math.max(120, 60 + up(t.name).length * 7), i)
         .when(i === 0, (el) => el.rounded_tl(STRIP - 2))
         .hover((st) => st.opacity(0.8))
         .when(hail, (el) => el.loop("opacity", { from: 0.5, to: 1, period: 800 }))
         .on_click(() => run("tab.select", { id: t.id }))
         .on_mouse_down("right", onRight(() => menu("tab", { id: t.id, space: space.id })))
+        .when(t.active, (el) => el.child(gradient(f.light, f.glint)))
+        // a black chip set into the segment's lower left, with the tab's number in red
+        .child(div().relative().flex_none().h(13).px(5).mb(1).bg(P.black).flex().items_center().text_color(P.red).text_size(10).child(two(t.index)))
+        .child(div().flex_1())
         .when(t.status === "working" || t.status === "done", (el) => el
-          .child(div().w(8).h(8).mb(3).flex_none().bg(t.status === "done" ? P.amber : P.black)))
-        .child(div().flex_none().child(`${two(t.index)} ${up(t.name)}`));
+          .child(div().relative().w(8).h(8).mb(3).flex_none().bg(t.status === "done" ? P.amber : P.black)))
+        .child(div().relative().flex_none().child(up(t.name)));
     };
     return h_flex().id("tab-bar").size_full().bg(P.bg).gap(GAP).on_mouse_down("right", onRight(globalMenu))
       .children(shown.map(seg))
@@ -359,15 +379,18 @@ export default class Lcars25 extends View {
         .child(div().id(id).h_full().w(Math.round(60 * (sys ? share : 0))).bg(share > 0.85 ? P.red : f.light)
           .transition("width", { duration: 900, easing: "ease-out" })));
     // on red alert a row of bars beside the words, each pulsing at its own pace, as on the alert displays
+    // otherwise one row of them sits dark and still
     const bars = (side) => h_flex().flex_none().gap(5).children(Array.from({ length: 9 }, (_, i) =>
-      div().id(`alert-bar-${side}-${i}`).w(5).h(13).bg(P.red).loop("opacity", { from: 0.2, to: 1, period: 600 + i * 110 })));
+      div().id(`alert-bar-${side}-${i}`).w(5).h(13).bg(red ? P.red : i % 3 === 2 ? f.mid2 : f.dark)
+        .when(red, (el) => el.loop("opacity", { from: 0.2, to: 1, period: 600 + i * 110 }))));
     // the loop's left edge starts here, under the strip's corner: the band's colour with the panel's curve cut into it
     return div().id("title").size_full().bg(f.dark).pl(T).on_mouse_down("right", onRight(globalMenu)).child(v_flex().size_full().bg(P.bg).rounded_tl(r)
       .child(fade(v_flex().id("hairlines").w_full().flex_none().pt(3).pl(r).gap(3), on, 2)
         .child(h_flex().w_full().h(2).gap(GAP).child(div().flex_1().h_full().bg(f.light)).child(div().w(280).h_full().bg(f.accent)))
         .child(div().w_full().h(1).bg(f.mid)))
       .child(h_flex().w_full().flex_1().min_h(0).items_center().gap(14).pl(r).pr(8)
-        .when(red, (el) => el.child(bars("l"))
+        .child(bars("l"))
+        .when(red, (el) => el
           .child(div().flex_none().text_color(P.red).text_size(15).font_weight(700)
             .child(`ALERT CONDITION: RED · ${two(need)} ${need === 1 ? "AGENT NEEDS" : "AGENTS NEED"} YOU`))
           .child(bars("r")))
@@ -397,7 +420,8 @@ export default class Lcars25 extends View {
     return v_flex().id("band").size_full().bg(P.bg).gap(GAP + 1)
       .child(fade(div().id("band-accent").w_full().h(150).flex_none().bg(f.accent), on, 5))
       .children(agents().map(tick))
-      .child(fade(div().id("band-rest").w_full().flex_1().bg(f.mid), on, 7));
+      .child(fade(h_flex().id("band-rest").w_full().flex_1().gap(GAP), on, 7)
+        .child(div().w(2).h_full().bg(f.dark)).child(div().flex_1().h_full().bg(f.mid)));
   }
 
   corner() {
