@@ -4,8 +4,7 @@
 // Right-clicks open Herdr's own menu mod, so rename, close, split and worktrees work as in its other layouts.
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { spaces, agents, machines, run, props, setAgentOrder, window, openOverlay, closeOverlay, exec, home, shared, setShared } from "herdr";
-import * as fs from "fs/promises";
+import { spaces, agents, machines, run, props, setAgentOrder, window, openOverlay, closeOverlay } from "herdr";
 
 const C = {
   black: "#000000", orange: "#ff9900", peach: "#ff9966", gold: "#ffcc66", tan: "#ffcc99", lilac: "#cc99cc",
@@ -35,43 +34,6 @@ function slab(id, color, label, h, extra) {
   return extra ? extra(el) : el;
 }
 
-// Shepherdr is optional (its web app runs on this computer; its port is in ~/.shepherdr/server.json): what waits on the
-// human, read from GET /api/snapshot. Only the sidebar asks; it shares the answer under SHEP so the status arm reads the
-// same one. The answer is an object when Shepherdr runs, "offline" when it is installed but silent, and null when it is
-// not on this computer, which draws nothing and is asked again only every POLL_ABSENT ms. Never an error.
-const POLL = 12000;
-const POLL_ABSENT = 60000;
-const SHEP = "lcars.shepherdr";
-const SHEP_ROWS = 3; // how many tasks the sidebar lists
-const shepState = () => { const s = shared(SHEP); return s && typeof s === "object" ? s : null; };
-async function shepherdr() {
-  let port = 7787, installed = false;
-  try {
-    const p = JSON.parse(await fs.readFile(`${home()}/.shepherdr/server.json`, "utf8")).port;
-    installed = true;
-    // only a plain port number: anything else could turn the address into another host
-    if (Number.isInteger(p) && p > 0 && p < 65536) port = p;
-  } catch {}
-  const url = `http://127.0.0.1:${port}`;
-  let res;
-  try { res = await fetch(`${url}/api/snapshot`); } catch { return installed ? "offline" : null; }
-  if (!res.ok) return installed ? "offline" : null;
-  const snap = await res.json();
-  const places = new Map((snap.places ?? []).map((p) => [p.id, p]));
-  const tasks = (snap.tasks ?? []).filter((t) => places.has(t.place) && !t.archived);
-  const asks = Object.keys(snap.asks ?? {}).filter((id) => places.has(id) && snap.asks[id]);
-  const count = (...st) => tasks.filter((t) => st.includes(t.status)).length;
-  // the rows that wait on the human, the coordinators' questions first, then tasks that need an answer, then ready to merge
-  const rows = [
-    ...asks.map((id) => ({ key: `ask-${id}`, label: `${places.get(id).home ? "home" : places.get(id).name} · ${places.get(id).machine}`, word: "ASKS YOU", color: C.red })),
-    ...tasks.filter((t) => t.status === "need").map((t) => ({ key: t.id, label: `${t.id} · ${t.name}`, word: t.sub || "NEEDS YOU", color: C.red })),
-    ...tasks.filter((t) => t.status === "ready").map((t) => ({ key: t.id, label: `${t.id} · ${t.name}`, word: "READY TO MERGE", color: C.gold })),
-  ];
-  // merging counts as working: Shepherdr is busy with it
-  return { url, need: asks.length + count("need"), ready: count("ready"), working: count("work", "merging"), rows };
-}
-const openUrl = (url) => exec(window()?.platform === "macos" ? "open" : "xdg-open", [url]).catch(() => {});
-
 // Herdr's menu mod at the pointer: tab is "space", "tab", "pane" or "global"
 const menu = (tab, target) => openOverlay({ mod: "menu", kind: "popup", width: 200, height: 260, props: { tab, target } });
 // Herdr's new menu: a terminal, each installed agent, a new space, worktrees
@@ -91,25 +53,6 @@ export default class Lcars extends View {
   init(_props, cx) {
     this.now = Date.now();
     cx.timer.every(15000, (cx) => { this.now = Date.now(); cx.notify(); });
-    // the sidebar asks Shepherdr and shares the answer; setShared redraws every part, so only a changed answer is set
-    if ((_props?.part ?? props()?.part) === "side") {
-      this.poll(cx);
-      cx.timer.every(POLL, (cx) => this.poll(cx));
-    }
-  }
-
-  poll(cx) {
-    const now = Date.now();
-    if (this.polling && now - this.polling < 60000) return; // an earlier ask is still out
-    if (this.absent && now - this.asked < POLL_ABSENT) return; // not on this computer: ask rarely
-    this.polling = this.asked = now;
-    cx.spawn(async () => {
-      let next = null;
-      try { next = await shepherdr(); } catch {}
-      this.polling = 0;
-      this.absent = next === null;
-      if (JSON.stringify(next) !== JSON.stringify(shared(SHEP) ?? null)) setShared(SHEP, next);
-    });
   }
 
   render() {
@@ -191,42 +134,7 @@ export default class Lcars extends View {
         .hover((st) => st.bg(C.violet)).on_click(() => newSpace()).on_mouse_down("right", onRight(newSpace))))
       .child(slab("crew-label", C.lilac, `crew ${two(crew.length)}`, 26))
       .child(v_flex().id("crew").w_full().flex_none().gap(2).pr(4).children(crew.map(member)))
-      .children(this.shepherdr())
       .child(div().w_full().flex_1().min_h(10).bg(C.gray)); // runs into the bottom elbow
-  }
-
-  // Shepherdr's blocks for the sidebar: a label slab, three counts, and the first few things waiting on the human.
-  // Clicking any of it opens Shepherdr's web app. Installed but not running: one quiet grey slab; not installed: nothing.
-  shepherdr() {
-    if (shared(SHEP) === "offline") return [slab("shepherdr-label", C.gray, "shepherdr offline", 26)];
-    const s = shepState();
-    if (!s) return [];
-    const open = () => openUrl(s.url);
-    const press = (el) => el.cursor_pointer().hover((st) => st.opacity(0.85)).on_click(open);
-    const count = (id, n, word, color) => v_flex().id(id).flex_1().h(46).bg(n ? color : C.gray).justify_end()
-      .px(8).pb(2).text_color(C.black).font_weight(700)
-      .when(id === "shepherdr-need" && n > 0, (el) => el.loop("opacity", { from: 0.55, to: 1, period: 900 }))
-      .child(div().text_size(20).child(two(n)))
-      .child(div().text_size(10).child(word));
-    const row = (r) => h_flex().id(`shepherdr-${r.key}`).w_full().h(36).flex_none().gap(6).items_center()
-      .cursor_pointer().hover((st) => st.opacity(0.85)).on_click(open)
-      .child(div().w(14).h_full().bg(r.color).rounded_l(15)
-        .when(r.color === C.red, (el) => el.loop("opacity", { from: 0.4, to: 1, period: 700 })))
-      .child(v_flex().flex_1().min_w(0)
-        .child(div().text_size(12).font_weight(700).text_color(C.tan).truncate().child(up(r.label)))
-        .child(div().text_size(10).text_color(r.color).truncate().child(up(r.word))));
-    const more = s.rows.length - SHEP_ROWS;
-    return [
-      slab("shepherdr-label", s.need ? C.red : C.gold, "shepherdr", 26, (el) => press(el)
-        .when(s.need > 0, (el) => el.loop("opacity", { from: 0.55, to: 1, period: 900 }))),
-      h_flex().id("shepherdr-counts").w_full().flex_none().gap(GAP)
-        .child(count("shepherdr-need", s.need, "NEED YOU", C.red))
-        .child(count("shepherdr-ready", s.ready, "READY", C.gold))
-        .child(count("shepherdr-working", s.working, "WORKING", C.blue)),
-      v_flex().id("shepherdr-rows").w_full().flex_none().gap(2).pr(4).children(s.rows.slice(0, SHEP_ROWS).map(row))
-        .when(more > 0, (el) => el.child(div().id("shepherdr-more").pl(20).text_size(10).font_weight(700)
-          .text_color(C.gray).cursor_pointer().on_click(open).child(`+ ${two(more)} MORE`))),
-    ];
   }
 
   tabs() {
@@ -254,7 +162,6 @@ export default class Lcars extends View {
     const count = (s) => crew.filter((a) => a.status === s).length;
     const away = machines().filter((m) => m.name).length;
     const clock = new Date(this.now).toTimeString().slice(0, 5);
-    const shep = shepState();
     const elbow = div().id("menu").w(SIDE).h_full().flex_none().bg(C.gray).rounded_bl(40)
       .flex().items_start().justify_end().px(10).pt(4).text_color(C.black).text_size(13).font_weight(700)
       .cursor_pointer().hover((st) => st.bg(C.violet)).on_click(() => menu("global", {}))
@@ -272,10 +179,6 @@ export default class Lcars extends View {
         .child(div().text_color(count("blocked") ? C.red : C.gray).child(`${two(count("blocked"))} NEED YOU`))
         .child(div().text_color(C.gold).child(`${two(count("done"))} DONE`))
         .child(div().text_color(C.lilac).child(`${two(away + 1)} MACHINES`))
-        // Shepherdr: what waits on the human (needs an answer, or is ready to merge); click opens it. Quiet when it is not running
-        .when(!!shep, (el) => el.child(div().id("shepherdr-status").cursor_pointer().on_click(() => openUrl(shep.url))
-          .text_color(shep.need ? C.red : shep.ready ? C.gold : C.gray)
-          .child(`${two(shep.need + shep.ready)} SHEPHERDR`)))
         .child(div().flex_1())
         .child(div().id("palette").text_color(C.tan).cursor_pointer().on_click(() => run("app.palette"))
           .child(`${window()?.platform === "macos" ? "⌘" : "CTRL"} SHIFT P · ${clock}`)));

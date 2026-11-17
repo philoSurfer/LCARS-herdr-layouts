@@ -8,7 +8,7 @@ Layouts for the [Herdr](https://herdr.dev) app, one folder each. Each folder has
 | [Slate](slate/RECIPE.md) | A quiet, dense dark frame: a sidebar with the shown space pinned, cards for agents that need you with their question, spaces as colour chips with each agent's icon, agents in flight, text tabs with an underline, a task graph of the shown space on the right. |
 | [Board](board/RECIPE.md) | The xo crew as a board: a pinned Board tab, today's numbers, the next move, and NEEDS YOU / WORKING / READY TO LAND / DONE columns with Merge, Ship and Archive. Focus (F) shows the picked agent's live terminal beside it. |
 
-[Shepherdr](https://github.com/eliasstravik/shepherdr) gets the same look: [`shepherdr/`](shepherdr/README.md) is an LCARS theme plugin for its web app, and the LCARS layout shows Shepherdr's counts in its sidebar.
+[Shepherdr](https://github.com/eliasstravik/shepherdr) gets the same look: [`shepherdr/`](shepherdr/README.md) is an LCARS theme plugin for its web app.
 
 To add one, ask your agent in Herdr to read `~/.config/herdr-app/AGENTS.md` ("Layouts other people made"), then point it at the folder.
 
