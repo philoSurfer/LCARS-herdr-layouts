@@ -101,11 +101,14 @@ const breath = (id, from, to_, to, period) => div().id(id).absolute().top(0).lef
 const grow = (el, on, w, i) => el.w(on ? w : 0).overflow_hidden().transition("width", { duration: 520, delay: i * 70, easing: "ease-out" });
 const fade = (el, on, i) => el.opacity(on ? 1 : 0).transition("opacity", { duration: 480, delay: 200 + i * 70 });
 
-// Materialise: for GLOW ms after an agent stops working, amber columns flicker over its crew row.
+// Materialise: for GLOW ms after an agent finishes, a soft amber wash rises from the left towards its light and
+// sinks again, behind the words, with a hairline under the row. Nothing covers the text.
 const GLOW = 2400;
-const shimmer = (key) => h_flex().absolute().top(0).left(0).size_full().gap(5)
-  .children(Array.from({ length: 20 }, (_, i) => div().id(`glow-${key}-${i}`).flex_1().h_full().bg(P.amber)
-    .loop("opacity", { from: 0, to: 0.75, period: 260 + ((i * 97) % 420) })));
+const shimmer = (key) => [
+  breath(`glow-${key}`, P.black, P.amber, 0.3, GLOW / 2),
+  div().id(`glow-line-${key}`).absolute().left(0).bottom(0).w_full().h(1).bg(P.amber)
+    .loop("opacity", { from: 0, to: 0.8, period: GLOW / 2, easing: "ease-in-out" }),
+];
 
 // Hail: for HAIL ms after an agent starts needing you, two rings swell from its status light and fade as they grow,
 // each at its own pace. A ring is a round outline whose size, place and opacity swing together. It is placed from a
@@ -277,16 +280,16 @@ export default class Lcars25 extends View {
         .hover((st) => st.opacity(0.8))
         .on_click(() => run("agent.focus", { terminal: a.address }))
         .on_mouse_down("right", onRight(() => menu("pane", { pane: a.pane, terminal: a.address })))
-        .child(v_flex().flex_1().min_w(0).items_end()
+        .when(glow, (el) => el.children(shimmer(a.address))) // first, so it lies behind the words
+        .child(v_flex().relative().flex_1().min_w(0).items_end()
           .child(div().max_w_full().text_size(11).font_weight(700).text_color(a.focused ? P.white : f.light).truncate()
             .child(up(`${a.program?.name ?? a.app ?? "agent"} · ${a.tab_name}`)))
           .child(div().max_w_full().text_size(9).text_color(a.status === "blocked" || glow ? c : f.mid).truncate()
             .child(`${glow ? "DONE" : WORD[a.status] ?? up(a.status)} · ${up(a.space_name)}`)))
         .child(div().relative().w(0).h(24).flex_none()
           .when(this.hail.has(a.address), (el) => el.child(ring(a.address, 0, 1500)).child(ring(a.address, 1, 2300))))
-        .child(div().id(`agent-light-${a.address}`).w(4).h(24).flex_none().bg(c)
-          .when(a.status === "blocked", (el) => el.loop("opacity", { from: 0.35, to: 1, period: 700 })))
-        .when(glow, (el) => el.child(shimmer(a.address)));
+        .child(div().id(`agent-light-${a.address}`).relative().w(4).h(24).flex_none().bg(c)
+          .when(a.status === "blocked", (el) => el.loop("opacity", { from: 0.35, to: 1, period: 700 })));
     };
     // where the crew's heading starts, measured as the rows above it are laid out
     const crewAt = FIRST + list.length * (ROW + GAP) + 20 + GAP + 6;
