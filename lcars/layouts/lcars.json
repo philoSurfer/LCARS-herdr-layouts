@@ -80,7 +80,8 @@
           "content": {
             "mod": "lcars",
             "props": {
-              "part": "side"
+              "part": "side",
+              "alert_after": 120
             }
           }
         },
@@ -129,6 +130,19 @@
               }
             }
           ]
+        },
+        {
+          "id": "systems",
+          "type": "block",
+          "size": {
+            "px": 176
+          },
+          "content": {
+            "mod": "lcars",
+            "props": {
+              "part": "systems"
+            }
+          }
         }
       ]
     },

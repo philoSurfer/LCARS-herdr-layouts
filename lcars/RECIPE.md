@@ -71,19 +71,41 @@ Each agent status shows the same colour in the crew strip, the tab pill and the 
 
 **Over time:** the stardate and clock update every 15s. The crew order follows the sidebar, through `setAgentOrder`, so `agent.next` and `agent.prev` walk it top to bottom.
 
+## Systems rail
+
+A 176px column right of the work area, drawn by the mod as part `"systems"`. Three label slabs with their content under each:
+
+- **`SYSTEMS`** (blue, rounded top-left): `CPU · nn CORES`, `MEMORY` (percent and GB in use) and `DISK`, each an 8px gauge filled with a left-to-right gradient that eases to every new reading over 900ms, then `LOAD` with the 1, 5 and 15 minute averages. Before the first reading the gauges are empty and read `--`.
+- **`FLEET`** (lilac): one row per status, `WORKING`, `NEED YOU`, `DONE`, `STANDBY`, with a bar for its share of the crew and its count, in the status colours.
+- **`TELEMETRY`** (tan): rows of made-up numbers filling the rest, each row stepping through its own list at its own pace (`frames`).
+
+**Data:** every 5s the rail runs one shell script (`sh -c`) from `cx.spawn`, so rendering never waits on it, and never while `herdr-app check` loads the mod. On macOS it reads `sysctl`, `vm_stat`, `ps` and `df`; elsewhere `/proc/loadavg`, `/proc/meminfo`, `nproc`, `ps` and `df`. CPU is every process's share added up and divided over the cores. Memory in use is active, wired and compressed pages on macOS, total less available on Linux. It reads nothing else and reaches no network.
+
+## Red alert
+
+When an agent has needed you for `alert_after` seconds (a prop of the sidebar block in the layout, 120 by default) the whole frame turns red:
+
+- Every frame colour becomes a red (`#ff5544`, `#ff8877`, `#ffb3a6`, `#ff6655`, grey `#b3594d`). Status colours, the crew list, tab pills and the systems gauges keep their own.
+- The title area shows a red pill at its left, `RED ALERT · nn AGENTS NEED YOU`, pulsing 0.45↔1 every 900ms.
+- The slabs of the top and bottom arms pulse 0.35↔1, each at its own period (700ms plus 170ms per slab), so the light seems to run along them.
+- Herdr's `blocked` sound plays once as the frame turns red.
+
+It clears the moment no agent is blocked. The sidebar notes when each agent was first seen blocked, checks every 5s and sets `shared("lcars.alert")` to `"red"` or `"green"`, which redraws every part. A part is red only while that is `"red"` and an agent is still blocked. Pane borders are the layout's, so they stay grey and orange.
+
 ## Built from
 
 - **`layouts/lcars.json`:** a root `column` with `"titlebar": "none"`, `"traffic_lights": [226, 34]` (in the black under the top arm), `"theme": "graphite"`, a `colors` block that sets every theme colour and `ansi0`–`ansi15` (so no `themes/` file is needed), `"ui_font": "Antonio"` and `"preview": "mods/lcars/preview.png"`. Its children:
   - `top`: a block, `{ "px": 64 }`, `window_drag`.
   - `body`: a row with `resizable: false`, holding:
     - `sidebar`: a block, `{ "px": 210 }`.
+    - `systems`: a block, `{ "px": 176 }`, after `work`.
     - `work`: a column with padding `[8, 12]` and gap 8. It holds `tabs`, a block of `{ "px": 30 }`, and `main`, a block with `"tab": "active"` and the pane frame (gap 8, radius 10, border `#666688` 2px, focus `#ff9900` 2px, `lone: true`).
   - `bottom`: a block, `{ "px": 44 }`.
-- **One mod, `mods/lcars`** (`{ "place": "none" }`), used by all four blocks. `props().part` picks what it draws: `"top"`, `"side"`, `"tabs"` or `"bottom"`. Its code is one `View` class with a renderer per part. It uses `gpui-kit` `div` and `gpui-base` `h_flex` / `v_flex`.
+- **One mod, `mods/lcars`** (`{ "place": "none" }`), used by all five blocks. `props().part` picks what it draws: `"top"`, `"side"`, `"tabs"`, `"systems"` or `"bottom"`. Its code is one `View` class with a renderer per part. It uses `gpui-kit` `div` and `gpui-base` `h_flex` / `v_flex`.
 - **The machine picker** is the same mod opened as a popup (`openOverlay {mod: "lcars", kind: "popup", frame: "none", props: {part: "machines"}}`), sized 230px wide and 60 + 44 per machine tall. It closes itself with `closeOverlay(props().overlay)` before running `space.new`.
-- **`herdr` functions:** `spaces()`, `agents()`, `machines()`, `window()` (only its `platform`), `props()`, `run()`, `setAgentOrder()`, `openOverlay()` and `closeOverlay()`. It runs no programs and makes no network or file reads.
+- **`herdr` functions:** `spaces()`, `agents()`, `machines()`, `window()` (only its `platform`), `props()`, `run()`, `setAgentOrder()`, `openOverlay()`, `closeOverlay()`, `shared()`, `setShared()`, `playSound()`, `checking()` and `exec()`. It runs one program, the systems rail's shell script, and makes no network or file reads.
 - **Shipped mods:** `menu` (right-click menus, opened with `props {tab: "space" | "tab" | "pane" | "global", target}`) and `new-menu` (the `+` popup). It replaces the tab bar, the sidebar and the status bar.
-- **Art:** none. Every shape is a coloured `div` with per-corner radii (`rounded_tl`, `rounded_bl`, `rounded_tr`, `rounded_br`, `rounded_l`).
+- **Art:** none. Every shape is a coloured `div` with per-corner radii (`rounded_tl`, `rounded_bl`, `rounded_tr`, `rounded_br`, `rounded_l`). The gauges' gradients are a painted rectangle (`window.paint_path` with `Background.linear_gradient`) inside the bar.
 
 ## Watch out
 
@@ -107,3 +129,5 @@ Each agent status shows the same colour in the crew strip, the tab pill and the 
 5. `+` after the tabs opens Herdr's new menu. Picking Terminal adds a pill.
 6. `+ NEW SPACE` opens the machine picker when machines are added. Picking `THIS COMPUTER` adds a space slab and shows it.
 7. `MENU` opens the global menu and the gear opens the settings. Right-clicking a space, tab or crew row opens its menu.
+8. The systems rail shows CPU, memory, disk and load within 5 seconds, and the gauges move as the readings change.
+9. With `alert_after` set to 5, a terminal that stays blocked turns the frame red within 10 seconds, with the `RED ALERT` pill. Closing it turns the frame back.
