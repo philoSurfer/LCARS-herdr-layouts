@@ -3,8 +3,8 @@
   "type": "column",
   "titlebar": "none",
   "traffic_lights": [
-    18,
-    22
+    12,
+    4
   ],
   "theme": "graphite",
   "colors": {
@@ -53,31 +53,30 @@
   "children": [
     {
       "id": "top",
-      "type": "block",
-      "content": {
-        "mod": "lcars25",
-        "props": {
-          "part": "top"
-        }
-      },
-      "size": {
-        "px": 44
-      },
-      "window_drag": true
-    },
-    {
-      "id": "body",
       "type": "row",
+      "size": {
+        "px": 60
+      },
+      "gap": 4,
       "resizable": false,
       "children": [
         {
-          "id": "work",
+          "id": "sidetop",
+          "type": "block",
+          "content": {
+            "mod": "lcars25",
+            "props": {
+              "part": "sidetop"
+            }
+          },
+          "size": {
+            "px": 232
+          },
+          "window_drag": true
+        },
+        {
+          "id": "head",
           "type": "column",
-          "padding": [
-            4,
-            10
-          ],
-          "gap": 6,
           "resizable": false,
           "children": [
             {
@@ -90,9 +89,67 @@
                 }
               },
               "size": {
-                "px": 26
+                "px": 22
               }
             },
+            {
+              "id": "title",
+              "type": "block",
+              "content": {
+                "mod": "lcars25",
+                "props": {
+                  "part": "title"
+                }
+              },
+              "window_drag": true
+            }
+          ]
+        },
+        {
+          "id": "cap",
+          "type": "block",
+          "content": {
+            "mod": "lcars25",
+            "props": {
+              "part": "cap"
+            }
+          },
+          "size": {
+            "px": 40
+          },
+          "window_drag": true
+        }
+      ]
+    },
+    {
+      "id": "body",
+      "type": "row",
+      "gap": 4,
+      "resizable": false,
+      "children": [
+        {
+          "id": "sidebar",
+          "type": "block",
+          "content": {
+            "mod": "lcars25",
+            "props": {
+              "part": "side",
+              "alert_after": 120
+            }
+          },
+          "size": {
+            "px": 232
+          }
+        },
+        {
+          "id": "work",
+          "type": "column",
+          "padding": [
+            4,
+            4
+          ],
+          "resizable": false,
+          "children": [
             {
               "id": "main",
               "type": "block",
@@ -100,7 +157,7 @@
                 "tab": "active",
                 "pane": {
                   "gap": 6,
-                  "radius": 10,
+                  "radius": 8,
                   "background": "#000000",
                   "border": {
                     "width": 1,
@@ -128,33 +185,66 @@
           ]
         },
         {
-          "id": "sidebar",
+          "id": "band",
           "type": "block",
           "content": {
             "mod": "lcars25",
             "props": {
-              "part": "side",
-              "alert_after": 120
+              "part": "band"
             }
           },
           "size": {
-            "px": 220
+            "px": 12
           }
         }
       ]
     },
     {
-      "id": "bottom",
-      "type": "block",
-      "content": {
-        "mod": "lcars25",
-        "props": {
-          "part": "bottom"
-        }
-      },
+      "id": "foot",
+      "type": "row",
       "size": {
-        "px": 34
-      }
+        "px": 44
+      },
+      "gap": 4,
+      "resizable": false,
+      "children": [
+        {
+          "id": "sidebot",
+          "type": "block",
+          "content": {
+            "mod": "lcars25",
+            "props": {
+              "part": "sidebot"
+            }
+          },
+          "size": {
+            "px": 232
+          }
+        },
+        {
+          "id": "bottom",
+          "type": "block",
+          "content": {
+            "mod": "lcars25",
+            "props": {
+              "part": "bottom"
+            }
+          }
+        },
+        {
+          "id": "corner",
+          "type": "block",
+          "content": {
+            "mod": "lcars25",
+            "props": {
+              "part": "corner"
+            }
+          },
+          "size": {
+            "px": 40
+          }
+        }
+      ]
     }
   ]
 }

@@ -1,9 +1,10 @@
-// LCARS 25: an LCARS frame after the 25th-century displays (black, grey-blues, one red-orange). One mod draws every part;
-// the layout says which with props().part: "top" (two dark title bars), "side" (the right column: the light grey frame
-// with dark cards of spaces and crew), "tabs", "pane" (each pane's header strip) and "bottom" (the status line, the
-// thin band and the frame's corner). As a popup it is "machines". The right title bar carries this computer's CPU and
-// memory as two small gauges.
-// Right-clicks open Herdr's own menu mod, so rename, close, split and worktrees work as in its other layouts.
+// LCARS 25: an LCARS frame after the 25th-century displays (black, grey-blues, one red-orange). Its geometry is theirs:
+// thick bands that loop around black panels with a large outer curve and a smaller inner one, change colour along
+// their length, and carry small right-aligned labels. One mod draws every piece; the layout says which with
+// props().part. Around the sidebar, a dark loop: "sidetop", "side", "sidebot". Around the terminals, an open loop:
+// "tabs" (the strip of tab segments along the top), "title" (hairlines, alerts, load, clock, the space's name), "cap"
+// (the red top-right corner), "band" (the right edge), "bottom" (the status line and lower band) and "corner". "pane"
+// is each pane's header strip, and as a popup the mod is "machines".
 import { View, div, svg, PathBuilder, Background } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { spaces, agents, machines, panes, run, props, setAgentOrder, window as appWindow, openOverlay, closeOverlay, exec,
@@ -12,14 +13,19 @@ import { spaces, agents, machines, panes, run, props, setAgentOrder, window as a
 // The palette of the 25th-century displays: black, three grey-blues and one red-orange. Amber is ours, for "done".
 const P = {
   bg: "#000000", black: "#000000", panel: "#111419", dark: "#2f3749", mid: "#6d748c", light: "#9ea5ba", red: "#e7442a",
-  white: "#e6e9f2", amber: "#f2b24a",
+  white: "#e6e9f2", amber: "#f2b24a", accent: "#e7442a", // accent: the stretch of the loop that is red
 };
 // the frame on red alert: the light grey turns red, as on the ALERT CONDITION: RED displays. Status colours stay.
-const RED = { ...P, light: "#e7442a", mid: "#b8321c", dark: "#4a130a", panel: "#1a0704" };
+const RED = { ...P, light: "#e7442a", mid: "#b8321c", dark: "#7d2012", accent: "#ffb8a8" };
 const STATUS = { working: "#9ea5ba", blocked: "#e7442a", done: "#f2b24a", idle: "#6d748c" };
 const WORD = { working: "WORKING", blocked: "NEEDS YOU", done: "DONE", idle: "STANDING BY" };
-const COL = 220; // the right column's width
-const GAP = 4; // background between blocks
+const T = 12; // a band's thickness
+const R = 24; // a loop's outer corner
+const r = 12; // and its inner one
+const SIDE = 232; // the sidebar's width (the layout's too)
+const INNER = SIDE - 2 * T - 12; // the width of a row inside the sidebar's loop
+const STRIP = 22; // the tab strip's height, which the red cap continues
+const GAP = 2; // background between the segments of a band
 
 const up = (s) => String(s ?? "").toUpperCase();
 const two = (n) => String(n).padStart(2, "0");
@@ -97,15 +103,8 @@ const ring = (key, n, period) => {
   const swing = (from, to) => ({ from, to, period, easing: "ease-out" });
   return div().id(`hail-${key}-${n}`).absolute().rounded_full().border(2).border_color(P.red)
     .loop("width", swing(6, 50)).loop("height", swing(6, 50))
-    .loop("left", swing(10, -12)).loop("top", swing(12, -10)).loop("opacity", swing(1, 0));
+    .loop("left", swing(INNER - 5, INNER - 27)).loop("top", swing(12, -10)).loop("opacity", swing(1, 0));
 };
-
-// a card in the right column: a near-black rounded panel with a small grey label and a large red figure, as on the
-// 25th-century side panels
-const card = (id, f, label, figure, on, i) => fade(v_flex().id(id).w_full().flex_none().bg(f.panel).rounded(10).p(8).gap(GAP), on, i)
-  .child(h_flex().w_full().items_end().justify_between().pb(2)
-    .child(div().text_color(f.mid).text_size(10).font_weight(700).child(label))
-    .child(div().text_color(P.red).text_size(20).font_weight(700).child(figure)));
 
 // Herdr's menu mod at the pointer: tab is "space", "tab", "pane" or "global"
 const menu = (tab, target) => openOverlay({ mod: "menu", kind: "popup", width: 200, height: 260, props: { tab, target } });
@@ -126,7 +125,7 @@ export default class Lcars25 extends View {
   init(_props, cx) {
     this.now = Date.now();
     const part = _props?.part ?? props()?.part;
-    if (part === "top") {
+    if (part === "title") {
       cx.timer.every(15000, (cx) => { this.now = Date.now(); cx.notify(); });
       if (!checking()) { this.measure(cx); cx.timer.every(SYS, (cx) => this.measure(cx)); }
     }
@@ -180,13 +179,9 @@ export default class Lcars25 extends View {
 
   render() {
     const part = props()?.part;
-    if (part === "top") return this.top();
-    if (part === "side") return this.side();
-    if (part === "tabs") return this.tabs();
-    if (part === "pane") return this.pane();
-    if (part === "bottom") return this.bottom();
-    if (part === "machines") return this.machines();
-    return div().child(`lcars25: unknown part ${part}`);
+    const draw = { sidetop: "sideTop", side: "side", sidebot: "sideBottom", tabs: "tabs", title: "title", cap: "cap", band: "band",
+      bottom: "bottom", corner: "corner", pane: "pane", machines: "machines" }[part];
+    return draw ? this[draw]() : div().child(`lcars25: unknown part ${part}`);
   }
 
   machines() {
@@ -194,19 +189,136 @@ export default class Lcars25 extends View {
     const all = [{ name: null, layout: "ready" }, ...machines().filter((m) => m.name)];
     const row = (m) => {
       const ready = m.layout === "ready";
-      return h_flex().id(`new-space-${m.name ?? "local"}`).w_full().h(26).flex_none().rounded(13).bg(P.dark).items_center().px(12)
+      return h_flex().id(`new-space-${m.name ?? "local"}`).w_full().h(24).flex_none().items_center().justify_end().px(8)
         .text_color(ready ? P.light : P.mid).text_size(12).font_weight(700)
-        .when(ready, (el) => el.cursor_pointer().hover((st) => st.bg(P.mid))
+        .when(ready, (el) => el.cursor_pointer().hover((st) => st.bg(P.light).text_color(P.black))
           .on_click(() => { close(); run("space.new", m.name ? { machine: m.name } : {}); }))
         .child(up(`${m.name ?? "this computer"}${ready ? "" : " · " + m.layout}`));
     };
-    return div().size_full().bg(P.light).rounded(14).p(6).child(
-      card("new-space-card", P, "NEW SPACE ON", two(all.length), true, 0).size_full().children(all.map(row)));
+    return div().size_full().bg(P.dark).rounded(R).p(T).child(
+      v_flex().size_full().bg(P.black).rounded(r).p(6).gap(GAP)
+        .child(h_flex().w_full().justify_end().px(8).text_color(P.red).text_size(11).font_weight(700).child("NEW SPACE ON"))
+        .children(all.map(row)));
   }
 
-  // The top bar: two dark pill bars joined by a thin connector, as the title bars of the 25th-century displays. The
-  // left one names the shown space and carries the alert; the right one carries the load, the stardate and the clock.
-  top() {
+  // The top of the sidebar's loop: a grey tab with this machine's name, then the dark band curving down both sides
+  // around the heading.
+  sideTop() {
+    const f = frame(), on = this.on;
+    const space = spaces().find((s) => s.active);
+    return v_flex().id("sidetop").size_full().bg(P.bg).gap(4).on_mouse_down("right", onRight(globalMenu))
+      .child(fade(div().id("machine").w_full().h(STRIP).flex_none().bg(f.mid).rounded_tl(R).rounded_tr(4).flex().items_end().justify_end()
+        .px(10).pb(2).text_color(P.black).text_size(11).font_weight(700).child(up(space?.machine ?? "this computer")), on, 0))
+      .child(fade(div().id("loop-top").w_full().flex_1().min_h(0).bg(f.dark).rounded_tl(R).rounded_tr(R).pt(T).px(T), on, 1)
+        .child(h_flex().size_full().bg(P.black).rounded_tl(r).rounded_tr(r).items_end().justify_end().gap(8).px(8)
+          .child(div().text_color(f.light).text_size(11).font_weight(700).child("SPACES"))
+          .child(div().text_color(P.red).text_size(15).font_weight(700).child(two(spaces().length)))));
+  }
+
+  // The sidebar: the loop's two sides, with spaces then crew between them, every label set to the right.
+  side() {
+    const f = frame(), on = this.on;
+    const list = spaces();
+    const crew = agents();
+    waiting(); // notes when each blocked agent started waiting, for the red alert
+    setAgentOrder(crew.map((a) => a.address));
+    const space = (s, i) => {
+      const hail = s.status === "blocked" && !s.active;
+      const lit = s.active || hail;
+      return fade(h_flex().id(`space-${s.id}`).w_full().h(24).flex_none().items_center().gap(6).pl(6).cursor_pointer()
+        .bg(s.active ? f.light : hail ? P.red : P.black), on, 2 + i)
+        .hover((st) => st.opacity(0.8))
+        .when(hail, (el) => el.loop("opacity", { from: 0.5, to: 1, period: 900 }))
+        .on_click(() => run("space.select", { id: s.id }))
+        .on_mouse_down("right", onRight(() => menu("space", { id: s.id })))
+        .child(div().flex_none().text_color(lit ? P.black : f.mid).text_size(10).font_weight(700)
+          .child(`${two(s.index)}${s.machine ? " · " + up(s.machine).slice(0, 4) : ""}`))
+        .child(div().flex_1().min_w(0).flex().justify_end().text_color(lit ? P.black : f.light).text_size(12).font_weight(700)
+          .child(div().truncate().child(up(s.name))))
+        // the tick at the right edge: lit when something in the space is working or done
+        .child(div().w(4).h_full().flex_none().bg(s.status === "done" ? P.amber : s.status === "working" ? (s.active ? P.black : f.light) : lit ? P.black : f.dark));
+    };
+    const member = (a) => {
+      const glow = this.glow.has(a.address); // it just stopped working
+      const c = glow ? P.amber : STATUS[a.status] ?? f.mid;
+      return h_flex().id(`agent-${a.address}`).relative().w_full().h(30).flex_none().gap(6).items_center().cursor_pointer()
+        .hover((st) => st.opacity(0.8))
+        .on_click(() => run("agent.focus", { terminal: a.address }))
+        .on_mouse_down("right", onRight(() => menu("pane", { pane: a.pane, terminal: a.address })))
+        .child(v_flex().flex_1().min_w(0).items_end()
+          .child(div().max_w_full().text_size(11).font_weight(700).text_color(a.focused ? P.white : f.light).truncate()
+            .child(up(`${a.program?.name ?? a.app ?? "agent"} · ${a.tab_name}`)))
+          .child(div().max_w_full().text_size(9).text_color(a.status === "blocked" || glow ? c : f.mid).truncate()
+            .child(`${glow ? "DONE" : WORD[a.status] ?? up(a.status)} · ${up(a.space_name)}`)))
+        .child(div().id(`agent-light-${a.address}`).w(4).h(24).flex_none().bg(c)
+          .when(a.status === "blocked", (el) => el.loop("opacity", { from: 0.35, to: 1, period: 700 })))
+        .when(glow, (el) => el.child(shimmer(a.address)))
+        .when(this.hail.has(a.address), (el) => el.child(ring(a.address, 0, 1500)).child(ring(a.address, 1, 2300)));
+    };
+    return div().id("side").size_full().bg(f.dark).px(T).on_mouse_down("right", onRight(globalMenu)).child(
+      v_flex().size_full().bg(P.black).px(6).pt(4).gap(GAP).overflow_hidden()
+        .children(list.map(space))
+        .child(h_flex().id("space-new").w_full().h(20).flex_none().items_center().justify_end().pr(10)
+          .text_color(f.mid).text_size(10).font_weight(700).cursor_pointer().hover((st) => st.text_color(f.light))
+          .on_click(() => newSpace()).on_mouse_down("right", onRight(newSpace)).child("+ NEW SPACE"))
+        // the crew's heading: a bar of the band's colour across the panel, the label and the count at its right
+        .child(fade(h_flex().id("crew-heading").w_full().h(18).flex_none().mt(6).mb(2).items_center().gap(8), on, 3 + list.length)
+          .child(div().flex_1().h(T).bg(f.dark).rounded_l(6))
+          .child(div().flex_none().text_color(f.light).text_size(11).font_weight(700).child("CREW"))
+          .child(div().flex_none().pr(10).text_color(P.red).text_size(15).font_weight(700).child(two(crew.length))))
+        .children(crew.map(member)));
+  }
+
+  // The bottom of the sidebar's loop, with MENU and the gear (Herdr's settings) inside its curve.
+  sideBottom() {
+    const f = frame(), on = this.on;
+    return fade(div().id("loop-bottom").size_full().bg(f.dark).rounded_bl(R).rounded_br(R).pb(T).px(T), on, 4)
+      .on_mouse_down("right", onRight(globalMenu))
+      .child(h_flex().size_full().bg(P.black).rounded_bl(r).rounded_br(r).items_start().justify_between().px(10).pt(4)
+        .text_size(11).font_weight(700)
+        .child(h_flex().id("menu").gap(8).items_center().text_color(f.light).cursor_pointer().hover((st) => st.opacity(0.7))
+          .on_click(() => menu("global", {}))
+          .child(div().id("settings").cursor_pointer().hover((st) => st.opacity(0.6))
+            .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+            .on_mouse_down("right", (_e, cx) => cx.stop_propagation())
+            .on_click(() => run("app.settings"))
+            .child(svg("mods/lcars25/gear.svg").size(13).text_color(f.light)))
+          .child("MENU"))
+        .child(div().id("palette").text_color(f.mid).text_size(10).cursor_pointer().hover((st) => st.opacity(0.7))
+          .on_click(() => run("app.palette")).child(`${appWindow()?.platform === "macos" ? "⌘" : "CTRL"} SHIFT P`)));
+  }
+
+  // The top band of the terminals' loop is the tab strip: one bar cut into segments by thin gaps, each tab's name set
+  // at its lower right. The shown tab is light, the others mid grey, one that needs you red; a dark run fills the rest.
+  tabs() {
+    const f = frame(), on = this.on;
+    const space = spaces().find((s) => s.active);
+    const shown = (space?.tabs ?? []).filter((t) => !t.settled);
+    const seg = (t, i) => {
+      const hail = t.status === "blocked" && !t.active;
+      return grow(h_flex().id(`tab-${t.id}`).h_full().flex_none().bg(t.active ? f.light : hail ? P.red : f.mid).items_end().justify_end()
+        .gap(6).px(10).pb(2).text_color(P.black).text_size(11).font_weight(700).cursor_pointer(), on, Math.max(120, 60 + up(t.name).length * 7), i)
+        .when(i === 0, (el) => el.rounded_l(STRIP / 2))
+        .hover((st) => st.opacity(0.8))
+        .when(hail, (el) => el.loop("opacity", { from: 0.5, to: 1, period: 800 }))
+        .on_click(() => run("tab.select", { id: t.id }))
+        .on_mouse_down("right", onRight(() => menu("tab", { id: t.id, space: space.id })))
+        .when(t.status === "working" || t.status === "done", (el) => el
+          .child(div().w(8).h(8).mb(3).flex_none().bg(t.status === "done" ? P.amber : P.black)))
+        .child(div().flex_none().child(`${two(t.index)} ${up(t.name)}`));
+    };
+    return h_flex().id("tab-bar").size_full().bg(P.bg).gap(GAP).on_mouse_down("right", onRight(globalMenu))
+      .children(shown.map(seg))
+      .child(h_flex().id("tab-new").h_full().w(40).flex_none().bg(f.mid).items_end().justify_end().px(10).pb(1)
+        .text_color(P.black).text_size(15).font_weight(700).cursor_pointer().hover((st) => st.bg(f.light))
+        .when(!shown.length, (el) => el.rounded_l(STRIP / 2))
+        .on_click(() => newMenu()).on_mouse_down("right", onRight(newMenu)).child("+"))
+      .child(fade(div().id("tab-run").flex_1().h_full().bg(f.dark), on, shown.length + 1));
+  }
+
+  // Under the strip: two hairlines, then a line with the alerts at the left and, set to the right, the load, the
+  // stardate, the clock and the shown space's name in red.
+  title() {
     const f = frame(), red = alert(), on = this.on;
     const space = spaces().find((s) => s.active);
     const crew = agents();
@@ -217,109 +329,74 @@ export default class Lcars25 extends View {
     const meter = (id, label, share) => v_flex().flex_none().w(60).gap(2)
       .child(h_flex().w_full().justify_between().text_size(10).text_color(f.mid)
         .child(label).child(div().text_color(f.light).child(sys ? `${Math.round(share * 100)}%` : "--")))
-      .child(div().w_full().h(2).bg(P.black)
+      .child(div().w_full().h(2).bg(f.dark)
         .child(div().id(id).h_full().w(Math.round(60 * (sys ? share : 0))).bg(share > 0.85 ? P.red : f.light)
           .transition("width", { duration: 900, easing: "ease-out" })));
     // on red alert a row of bars beside the words, each pulsing at its own pace, as on the alert displays
     const bars = (side) => h_flex().flex_none().gap(5).children(Array.from({ length: 9 }, (_, i) =>
-      div().id(`alert-bar-${side}-${i}`).w(5).h(14).bg(P.black).loop("opacity", { from: 0.25, to: 1, period: 600 + i * 110 })));
-    const left = fade(h_flex().id("title").flex_1().min_w(0).h(28).rounded(14).bg(red ? f.light : f.dark).items_center().gap(12).px(16), on, 0)
-      .when(!red, (el) => el
-        .child(div().flex_none().text_color(f.light).text_size(18).font_weight(700).child(up(space?.name ?? "HERDR")))
-        .child(div().flex_none().text_color(f.mid).text_size(10).child(space
-          ? `${two(space.index)} · ${up(space.machine ?? "this computer")} · ${two((space.tabs ?? []).filter((t) => !t.settled).length)} TABS` : ""))
+      div().id(`alert-bar-${side}-${i}`).w(5).h(13).bg(P.red).loop("opacity", { from: 0.2, to: 1, period: 600 + i * 110 })));
+    return v_flex().id("title").size_full().bg(P.bg).on_mouse_down("right", onRight(globalMenu))
+      .child(fade(v_flex().id("hairlines").w_full().flex_none().pt(3).gap(3), on, 2)
+        .child(div().w_full().h(2).bg(f.light)).child(div().w_full().h(1).bg(f.mid)))
+      .child(h_flex().w_full().flex_1().min_h(0).items_center().gap(14).pl(4).pr(8)
+        .when(red, (el) => el.child(bars("l"))
+          .child(div().flex_none().text_color(P.red).text_size(15).font_weight(700)
+            .child(`ALERT CONDITION: RED · ${two(need)} ${need === 1 ? "AGENT NEEDS" : "AGENTS NEED"} YOU`))
+          .child(bars("r")))
+        .when(!red && done > 0, (el) => el.child(div().id("yellow-alert").flex_none().text_color(P.amber).text_size(12).font_weight(700)
+          .child(`ALERT CONDITION: YELLOW · ${two(done)} FINISHED, NOT SEEN`)))
         .child(div().flex_1())
-        .when(done > 0, (el) => el.child(div().id("yellow-alert").flex_none().h(18).px(10).rounded(9).bg(P.amber).flex().items_center()
-          .text_color(P.black).text_size(11).font_weight(700).child(`ALERT CONDITION: YELLOW · ${two(done)} FINISHED, NOT SEEN`))))
-      .when(red, (el) => el.justify_center()
-        .child(bars("l"))
-        .child(div().flex_none().text_color(P.black).text_size(18).font_weight(700)
-          .child(`ALERT CONDITION: RED · ${two(need)} ${need === 1 ? "AGENT NEEDS" : "AGENTS NEED"} YOU`))
-        .child(bars("r")));
-    const right = fade(h_flex().id("readouts").flex_none().h(28).rounded(14).bg(f.dark).items_center().gap(14).px(16), on, 3)
-      .child(meter("sys-cpu", "CPU", sys?.cpu ?? 0))
-      .child(meter("sys-mem", "MEM", sys?.mem ?? 0))
-      .child(div().flex_none().text_color(P.red).text_size(11).child(stardate(this.now)))
-      .child(div().flex_none().text_color(f.light).text_size(14).font_weight(700).child(new Date(this.now).toTimeString().slice(0, 5)));
-    return h_flex().id("top").size_full().bg(P.bg).items_center().px(10).on_mouse_down("right", onRight(globalMenu))
-      .child(div().flex_none().w(appWindow()?.platform === "macos" ? 66 : 0)) // the window buttons sit here on macOS
-      .child(left)
-      .child(grow(div().id("title-link").h(6).flex_none().bg(f.dark), on, 48, 2))
-      .child(right);
+        .child(meter("sys-cpu", "CPU", sys?.cpu ?? 0))
+        .child(meter("sys-mem", "MEM", sys?.mem ?? 0))
+        .child(div().flex_none().text_color(f.mid).text_size(10).child(stardate(this.now)))
+        .child(div().flex_none().text_color(f.light).text_size(13).font_weight(700).child(new Date(this.now).toTimeString().slice(0, 5)))
+        .child(fade(div().id("space-name").flex_none().text_color(P.red).text_size(17).font_weight(700).child(up(space?.name ?? "HERDR")), on, 3)));
   }
 
-  // The right column: the light grey frame with dark cards inside it, spaces then crew, running down into the corner
-  // of the bottom bar.
-  side() {
+  // The loop's top-right corner, in the accent: as tall as the strip across the top, a band's width down the side.
+  cap() {
     const f = frame(), on = this.on;
-    const list = spaces();
-    const crew = agents();
-    waiting(); // notes when each blocked agent started waiting, for the red alert
-    setAgentOrder(crew.map((a) => a.address));
-    const space = (s, i) => {
-      const hail = s.status === "blocked" && !s.active;
-      const bg = s.active ? f.light : hail ? P.red : f.dark;
-      const ink = s.active || hail ? P.black : f.light;
-      return grow(h_flex().id(`space-${s.id}`).h(24).flex_none().rounded(12).bg(bg).items_center().gap(8).pl(10).pr(7).cursor_pointer(),
-        on, COL - 38, 1 + i)
-        .hover((st) => st.opacity(0.8))
-        .when(hail, (el) => el.loop("opacity", { from: 0.5, to: 1, period: 900 }))
-        .on_click(() => run("space.select", { id: s.id }))
-        .on_mouse_down("right", onRight(() => menu("space", { id: s.id })))
-        .child(div().flex_none().text_color(s.active || hail ? P.black : f.mid).text_size(10).font_weight(700)
-          .child(`${two(s.index)}${s.machine ? " · " + up(s.machine).slice(0, 4) : ""}`))
-        .child(div().flex_1().min_w(0).text_color(ink).text_size(12).font_weight(700).truncate().child(up(s.name)))
-        // the knob at the right, as on the display's toggles: lit when something in the space is working or done
-        .child(div().w(10).h(10).flex_none().rounded(5).bg(s.status === "done" ? P.amber : s.status === "working" && !s.active ? f.light : P.black));
-    };
-    const member = (a, i) => {
-      const lit = this.glow.has(a.address); // it just stopped working
-      const c = lit ? P.amber : STATUS[a.status] ?? f.mid;
-      return h_flex().id(`agent-${a.address}`).relative().w_full().h(30).flex_none().gap(8).items_center().pl(4).cursor_pointer()
-        .hover((st) => st.opacity(0.8))
-        .on_click(() => run("agent.focus", { terminal: a.address }))
-        .on_mouse_down("right", onRight(() => menu("pane", { pane: a.pane, terminal: a.address })))
-        .child(div().id(`agent-light-${a.address}`).w(8).h(18).flex_none().rounded(4).bg(c)
-          .when(a.status === "blocked", (el) => el.loop("opacity", { from: 0.35, to: 1, period: 700 })))
-        .child(v_flex().flex_1().min_w(0)
-          .child(div().text_size(11).font_weight(700).text_color(a.focused ? P.white : f.light).truncate()
-            .child(up(`${a.program?.name ?? a.app ?? "agent"} · ${a.tab_name}`)))
-          .child(div().text_size(9).text_color(a.status === "blocked" || lit ? c : f.mid).truncate()
-            .child(`${lit ? "DONE" : WORD[a.status] ?? up(a.status)} · ${up(a.space_name)}`)))
-        .when(lit, (el) => el.child(shimmer(a.address)))
-        .when(this.hail.has(a.address), (el) => el.child(ring(a.address, 0, 1500)).child(ring(a.address, 1, 2300)));
-    };
-    return v_flex().id("side").size_full().bg(f.light).rounded_tl(18).rounded_tr(18).pl(14).pr(8).pt(10).gap(8)
-      .on_mouse_down("right", onRight(globalMenu))
-      .child(card("spaces-card", f, "SPACES", two(list.length), on, 0)
-        .children(list.map(space))
-        .child(h_flex().id("space-new").h(22).flex_none().rounded(11).border(1).border_color(f.dark).items_center().px(10)
-          .text_color(f.mid).text_size(10).font_weight(700).cursor_pointer().hover((st) => st.bg(f.dark))
-          .on_click(() => newSpace()).on_mouse_down("right", onRight(newSpace)).child("+ NEW SPACE")))
-      .child(card("crew-card", f, "CREW", two(crew.length), on, 3).children(crew.map(member)));
+    return fade(div().id("cap").relative().size_full().bg(f.accent).rounded_tr(R), on, 4)
+      .child(div().absolute().left(0).top(STRIP).w(40 - T).h(200).bg(P.bg).rounded_tr(r));
   }
 
-  tabs() {
-    const f = frame();
-    const space = spaces().find((s) => s.active);
-    const pill = (t) => {
-      const hail = t.status === "blocked" && !t.active;
-      return h_flex().id(`tab-${t.id}`).h_full().flex_none().px(12).gap(6).rounded(13).bg(t.active ? f.light : hail ? P.red : f.dark).items_center()
-        .text_color(t.active || hail ? P.black : f.light).text_size(12).font_weight(700).cursor_pointer()
-        .hover((st) => st.opacity(0.8))
-        .when(hail, (el) => el.loop("opacity", { from: 0.5, to: 1, period: 800 }))
-        .on_click(() => run("tab.select", { id: t.id }))
-        .on_mouse_down("right", onRight(() => menu("tab", { id: t.id, space: space.id })))
-        .child(`${two(t.index)} ${up(t.name)}`)
-        .when(t.status === "working" || t.status === "done", (el) => el
-          .child(div().w(8).h(8).flex_none().rounded(4).bg(t.status === "done" ? P.amber : t.active ? P.black : f.light)));
-    };
-    return h_flex().id("tab-bar").size_full().gap(GAP).items_center().overflow_x_scrollbar()
-      .on_mouse_down("right", onRight(globalMenu))
-      .children((space?.tabs ?? []).filter((t) => !t.settled).map(pill))
-      .child(h_flex().id("tab-new").h_full().flex_none().px(11).rounded(13).border(1).border_color(f.dark).items_center()
-        .text_color(f.mid).text_size(16).font_weight(700).cursor_pointer().hover((st) => st.bg(f.dark))
-        .on_click(() => newMenu()).on_mouse_down("right", onRight(newMenu)).child("+"));
+  // The loop's right edge: the accent carries on down from the cap, then the band is mid grey to the corner.
+  band() {
+    const f = frame(), on = this.on;
+    return v_flex().id("band").size_full().bg(P.bg).gap(GAP + 1)
+      .child(fade(div().id("band-accent").w_full().h(150).flex_none().bg(f.accent), on, 5))
+      .child(fade(div().id("band-rest").w_full().flex_1().bg(f.mid), on, 7));
+  }
+
+  corner() {
+    const f = frame(), on = this.on;
+    return fade(div().id("corner").relative().size_full().bg(f.mid).rounded_br(R), on, 8)
+      .child(div().absolute().left(0).top(0).w(40 - T).h(44 - T).bg(P.bg).rounded_br(r));
+  }
+
+  // The loop's lower edge: a status line, then the band, light at its left end and mid grey on to the corner. A soft
+  // light runs along it while any agent works, faster with more of them.
+  bottom() {
+    const f = frame(), on = this.on;
+    const crew = agents();
+    const count = (s) => crew.filter((a) => a.status === s).length;
+    const working = count("working");
+    const away = machines().filter((m) => m.name).length;
+    const item = (color, text) => div().flex_none().text_color(color).child(text);
+    const scan = h_flex().id("scan").absolute().top(0).h_full().w(200)
+      .child(div().relative().flex_1().h_full().child(gradient("#ffffff00", "#ffffffe0")))
+      .child(div().relative().flex_1().h_full().child(gradient("#ffffffe0", "#ffffff00")))
+      .loop("left", { from: -200, to: 1800, period: Math.max(4000, 11000 - working * 1500), easing: "linear" });
+    return v_flex().id("bottom").size_full().bg(P.bg).on_mouse_down("right", onRight(globalMenu))
+      .child(h_flex().w_full().flex_1().min_h(0).items_center().justify_end().gap(16).pl(8).pr(8).text_size(11).font_weight(700)
+        .child(item(f.light, `${two(working)} WORKING`))
+        .child(item(count("blocked") ? P.red : f.mid, `${two(count("blocked"))} NEED YOU`))
+        .child(item(count("done") ? P.amber : f.mid, `${two(count("done"))} DONE`))
+        .child(item(f.mid, `${two(away + 1)} MACHINES`)))
+      .child(h_flex().w_full().h(T).flex_none().gap(GAP + 1)
+        .child(grow(div().id("lower-0").h_full().flex_none().bg(f.light).rounded_l(6), on, 180, 6))
+        .child(fade(div().id("lower-1").relative().flex_1().h_full().bg(f.mid).overflow_hidden(), on, 7)
+          .when(working > 0 && on, (el) => el.child(scan))));
   }
 
   // each pane's header: the program on a small cap (lit when the pane has the keyboard), its title, and the git branch
@@ -329,50 +406,10 @@ export default class Lcars25 extends View {
     if (!p) return div();
     const c = STATUS[p.status];
     return h_flex().id(`pane-${p.pane}`).size_full().bg(P.bg).items_center().gap(6).px(6)
-      .child(div().flex_none().h(13).px(8).rounded(7).bg(p.focused ? f.light : f.dark).flex().items_center()
+      .child(div().flex_none().h(13).px(8).bg(p.focused ? f.light : f.dark).flex().items_center()
         .text_color(p.focused ? P.black : f.mid).text_size(10).font_weight(700).child(up(p.program?.name ?? p.app ?? p.mod ?? "shell")))
       .when(!!c, (el) => el.child(div().flex_none().text_color(c).text_size(10).font_weight(700).child(WORD[p.status])))
       .child(div().flex_1().min_w(0).text_color(f.mid).text_size(10).truncate().child(up(p.title)))
       .when(!!p.branch, (el) => el.child(div().flex_none().text_color(P.red).text_size(10).child(up(p.branch))));
-  }
-
-  // The bottom bar: a status line over a thin band of the frame, which turns up into the right column at the corner.
-  bottom() {
-    const f = frame(), on = this.on;
-    const crew = agents();
-    const count = (s) => crew.filter((a) => a.status === s).length;
-    const working = count("working");
-    const away = machines().filter((m) => m.name).length;
-    const item = (color, text) => div().flex_none().text_color(color).child(text);
-    // the inner corner: the background with a rounded bottom-right corner, over the frame's colour
-    const status = div().w_full().flex_1().min_h(0).bg(f.light).child(
-      h_flex().size_full().bg(P.bg).rounded_br(16).items_center().gap(16).pl(14).pr(20).text_size(11).font_weight(700)
-        .child(item(f.light, `${two(working)} WORKING`))
-        .child(item(count("blocked") ? P.red : f.mid, `${two(count("blocked"))} NEED YOU`))
-        .child(item(count("done") ? P.amber : f.mid, `${two(count("done"))} DONE`))
-        .child(item(f.mid, `${two(away + 1)} MACHINES`))
-        .child(div().flex_1())
-        .child(div().id("palette").flex_none().text_color(f.mid).cursor_pointer().hover((st) => st.opacity(0.7))
-          .on_click(() => run("app.palette")).child(`${appWindow()?.platform === "macos" ? "⌘" : "CTRL"} SHIFT P`)));
-    // a soft light that runs along the band while any agent works, faster with more of them
-    const scan = h_flex().id("scan").absolute().top(0).h_full().w(200)
-      .child(div().relative().flex_1().h_full().child(gradient("#ffffff00", "#ffffffe0")))
-      .child(div().relative().flex_1().h_full().child(gradient("#ffffffe0", "#ffffff00")))
-      .loop("left", { from: -200, to: 1800, period: Math.max(4000, 11000 - working * 1500), easing: "linear" });
-    const band = fade(div().id("band").relative().w_full().h(8).flex_none().bg(f.light).rounded_bl(4).overflow_hidden(), on, 2)
-      .when(working > 0 && on, (el) => el.child(scan));
-    // the corner of the frame: MENU and the gear (Herdr's settings) in black on the grey
-    const corner = h_flex().id("menu").w(COL).h_full().flex_none().bg(f.light).rounded_br(22).items_center().justify_end().gap(10).pr(16)
-      .text_color(P.black).text_size(12).font_weight(700).cursor_pointer().hover((st) => st.opacity(0.85))
-      .on_click(() => menu("global", {}))
-      .child("MENU")
-      .child(div().id("settings").cursor_pointer().hover((st) => st.opacity(0.6))
-        .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
-        .on_mouse_down("right", (_e, cx) => cx.stop_propagation())
-        .on_click(() => run("app.settings"))
-        .child(svg("mods/lcars25/gear.svg").size(14).text_color(P.black)));
-    return h_flex().id("bottom").size_full().bg(P.bg).on_mouse_down("right", onRight(globalMenu))
-      .child(v_flex().flex_1().h_full().min_w(0).child(status).child(band))
-      .child(corner);
   }
 }
