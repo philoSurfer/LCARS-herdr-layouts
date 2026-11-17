@@ -91,6 +91,11 @@ async function systems() {
 const RECT = () => PathBuilder.fill().move_to("0%", "0%").line_to("100%", "0%").line_to("100%", "100%").line_to("0%", "100%").close().build();
 const gradient = (from, to) => window.paint_path(RECT(), Background.linear_gradient(90, from, to)).absolute().top(0).left(0).size_full();
 
+// Breath: a gradient layer over a (relative) row whose opacity swings slowly between nothing and `to`. Only opacity
+// moves, so the app's zoom cannot put it out of place.
+const breath = (id, from, to_, to, period) => div().id(id).absolute().top(0).left(0).size_full()
+  .loop("opacity", { from: 0, to, period, easing: "ease-in-out" }).child(gradient(from, to_));
+
 // Power-up: a part is drawn once with `on` false, then again 80ms later with it true, and these two carry every block
 // from nothing to its place, the i-th a little after the one before: bars grow from the left, the rest fades in.
 const grow = (el, on, w, i) => el.w(on ? w : 0).overflow_hidden().transition("width", { duration: 520, delay: i * 70, easing: "ease-out" });
@@ -245,9 +250,13 @@ export default class Lcars25 extends View {
     const space = (s, i) => {
       const hail = s.status === "blocked" && !s.active;
       const lit = s.active || hail;
+      const busy = s.status === "working";
       return fade(h_flex().id(`space-${s.id}`).relative().w_full().h(ROW).flex_none().items_center().gap(6).pl(6).cursor_pointer()
         .bg(s.active ? f.light : hail ? P.red : P.black), on, 2 + i)
         .when(s.active, (el) => el.child(gradient(f.glint, f.light))) // lighter at the left, settling into the bridge's colour
+        // alive, quietly: the shown space's light drifts along its row, and a space at work elsewhere glows towards the bridge
+        .when(s.active, (el) => el.child(breath(`space-drift-${s.id}`, P.white, f.light, 0.45, 4200)))
+        .when(busy && !lit, (el) => el.child(breath(`space-work-${s.id}`, P.black, f.dark, 0.7, 2600 + (i % 4) * 400)))
         .hover((st) => st.opacity(0.8))
         .when(hail, (el) => el.loop("opacity", { from: 0.5, to: 1, period: 900 }))
         .on_click(() => run("space.select", { id: s.id }))
@@ -257,7 +266,8 @@ export default class Lcars25 extends View {
         .child(div().relative().flex_1().min_w(0).flex().justify_end().text_color(lit ? P.black : f.light).text_size(12).font_weight(700)
           .child(div().truncate().child(up(s.name))))
         // the tick at the right edge: lit when something in the space is working or done
-        .child(div().relative().w(4).h_full().flex_none().bg(s.status === "done" ? P.amber : s.status === "working" ? (s.active ? P.black : f.light) : lit ? P.black : f.dark));
+        .child(div().id(`space-tick-${s.id}`).relative().w(4).h_full().flex_none().bg(s.status === "done" ? P.amber : busy ? (s.active ? P.black : f.light) : lit ? P.black : f.dark)
+          .when(busy, (el) => el.loop("opacity", { from: 0.3, to: 1, period: 2600 + (i % 4) * 400 })));
     };
     const member = (a) => {
       const glow = this.glow.has(a.address); // it just stopped working
