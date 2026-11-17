@@ -20,20 +20,20 @@ All labels are capitals in Antonio, which the mod brings with it.
 
 ## What you see
 
-Bands are 12px thick. A loop's outer corners are 24px, its inner ones 12px. Pieces are 4px apart; segments of one band 2px.
+Bands are 12px thick. A loop's outer corners are 24px, its inner ones 12px. Pieces are 4px apart; segments of one band 2px, everywhere. Labels sit 10px in from the right edge of whatever holds them. Type is one scale, Antonio throughout: 12px for codes, status lines and small print, 13px for names and labels, 14px for space names, 15px for the clock, 17px for counts and the red alert, 20px for the shown space's name; secondary lettering is the light grey, not the mid one.
 
 1. **Top, 60px.** Three pieces in a row.
    - **Over the sidebar, 232px:** a 22px mid-grey tab with a 24px top-left corner and the machine's name at its lower right (the window buttons sit on it on macOS), then the top of the sidebar's loop: dark, curving down both sides around `SPACES` and the count in red.
-   - **Over the terminals:** the tab strip, 22px: one bar cut into segments, each at least 120px wide with `nn NAME` in 11px black at its lower right. The shown tab is light, the others mid grey, one that needs you red and pulsing; a working or finished tab has a small square before its name. The first segment has a 20px top-left corner, where the loop's left band comes down from it. Then a 40px `+` segment and a dark run filling the rest, with a black card set into its right end: the shown space's number, machine and tab count in 10px red. Under the strip, a 2px light hairline whose last 280px are red, and a 1px mid one, then a line with the alerts at the left and, set to the right, the `CPU` and `MEM` meters, the stardate, the clock and the shown space's name in 17px red.
+   - **Over the terminals:** the tab strip, 22px: one bar cut into segments, each at least 120px wide with `nn NAME` in 13px black at its lower right. The shown tab is light, the others mid grey, one that needs you red and pulsing; a working or finished tab has a small square before its name. The first segment has a 20px top-left corner, where the loop's left band comes down from it. Then a 40px `+` segment and a dark run filling the rest, with a black card set into its right end: the shown space's number, machine and tab count in 12px red. Under the strip, a 2px light hairline whose last 280px are red, and a 1px mid one, then a line with the alerts at the left and, set to the right, the `CPU` and `MEM` meters (68px wide), a hairline, the clock, a hairline and the shown space's name in 20px red. The stardate is out of the title bar for now (the `stardate()` function is kept in `main.js`).
    - **The cap, 40px:** red, with a 24px top-right corner. It is as tall as the strip across the top and 12px wide down the side, with a 12px inner curve.
 2. **Middle.**
-   - **Sidebar, 232px:** the loop's two dark sides. Between them, one 24px row per space (index at the left in mid grey, name set to the right, a 4px tick at the right edge that lights when the space has work or a finished agent). The shown space's row is light with black text; one that needs you is red and pulses. Then `+ NEW SPACE`, a heading for the crew (a dark bar, `CREW` and the count in red), and one 30px row per agent: `PROGRAM · TAB` and `STATUS · SPACE` set to the right, and a 4px status tick.
+   - **Sidebar, 232px:** the loop's two dark sides. Between them, one 24px row per space (index at the left in light grey, name set to the right, a 4px tick at the right edge that lights when the space has work or a finished agent). The shown space's row is light with black text; one that needs you is red and pulses. Then `+ NEW SPACE`, a heading for the crew (a dark bar, `CREW` and the count in red), and one 34px row per agent: the tab's name (with the program in front only when the tab has no name or a bare number) and `STATUS · SPACE` under it, set to the right, and a 4px status tick. Agents at work, waiting or finished come first, in that order, with their lettering bold; a 1px dark rule separates them from the ones standing by, which are regular weight. The keyboard order follows what is drawn.
    - **Left edge of the terminals' loop, 12px:** dark.
    - **Terminals:** panes with a 1px dark border, light when focused, 8px radius, 6px gap, each with a 20px header (the program on a small cap, the status word, the title, the git branch in red).
    - **Right edge, 12px:** red for the first 150px, continuing the cap, then mid grey.
 3. **Bottom, 44px.**
    - Under the sidebar: the bottom of its loop, with the gear, `MENU` and `⌘ SHIFT P` inside the curve.
-   - Under the terminals: a status line set to the right (`nn WORKING`, `nn NEED YOU`, `nn DONE`, `nn MACHINES`), then the lower band: dark for 180px with a round bottom-left corner, then mid grey. The left band runs down beside the status line, with a 12px inner curve.
+   - Under the terminals: a status line set to the right (`nn WORKING`, `nn NEED YOU`, `nn DONE`, a hairline, `nn MACHINES`), each count led by a 6px square in its status colour, filled when the count is above zero and an outline when it is zero, then the lower band: dark for 180px with a round bottom-left corner, then mid grey. The left band runs down beside the status line, with a 12px inner curve.
    - The corner, 40px: mid grey with a 24px bottom-right corner and a 12px inner curve.
 
 Status colours: working light, blocked red, done amber, idle mid.
@@ -43,7 +43,7 @@ Status colours: working light, blocked red, done amber, idle mid.
 - **Embedding:** the shown space is part of the frame, not a highlight inside it. Its row is light and reaches the sidebar loop's right band, and for the height of that row the band is light too, as is the left band of the terminals' loop beside it. So the row runs through one loop and into the other as a single bridge, broken only by the gaps between pieces. Both bands find the row the same way: 4px above the first row, then 26px per row.
 - **Colour along a band:** bands are not one colour end to end. The sidebar loop's left side is dark beside the spaces, has an 18px red block where the crew's heading starts (the heading's dark bar meets it, so it reads as a branch off the band), and below that narrows to 8px of mid grey with a 2px dark line beside it. The grey of the terminals' right edge has the same thin line on its inner side.
 - **Small tones:** the shown space's row and the shown tab carry a faint gradient between light (`#9ea5ba`) and a shade lighter (`#b9bfd0`). Tabs that are not shown alternate mid (`#6d748c`) and a shade darker (`#5f667d`).
-- **Chips and bars:** each tab segment has a black chip in its lower left with the tab's number in 10px red. At the left of the line under the strip sit nine small bars, dark and still (every third a shade lighter); on red alert they turn red and pulse.
+- **Chips and bars:** each tab segment has a black chip in its lower left with the tab's number in 12px red. At the left of the line under the strip sit nine small bars, dark and still (every third a shade lighter); on red alert they turn red and pulse.
 - **The delta:** in the lower left of the sidebar, behind the crew list, a delta 84px by 100px in `#171b26`, barely above black (`mods/lcars25/delta.svg`, one filled path). An homage.
 - **Agent ladder:** on the right edge, between the red and the grey, one 8px tick per agent in its status colour; one that needs you pulses.
 
@@ -57,7 +57,7 @@ Status colours: working light, blocked red, done amber, idle mid.
 - **Yellow alert:** while any agent is `done` and unseen, and there is no red alert, the line under the strip reads `ALERT CONDITION: YELLOW · nn FINISHED, NOT SEEN` in amber. The frame keeps its colour.
 - **CPU and memory:** the title piece runs shell scripts (`sh -c`) from `cx.spawn`, never while `herdr-app check` loads the mod. One runs once, for what cannot change: the cores, the memory fitted and the page size (`sysctl` on macOS, `nproc` elsewhere). The other runs every 5s: `vm_stat` and `ps` on macOS, `/proc/meminfo` and `ps` elsewhere. CPU is every process's share added up and divided over the cores. The piece is redrawn only when a meter's whole-number percentage changes. A reading that fails empties the meters back to `--` and is logged once.
 - **Clicks and right-clicks:** as in LCARS 1.0. `MENU` under the sidebar opens the global menu; the gear opens the settings.
-- **Clock and stardate** are redrawn on the minute.
+- **The clock** is redrawn on the minute.
 
 ## Built from
 

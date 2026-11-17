@@ -39,6 +39,7 @@ const HEAD_TOP = 6; // the room above that heading
 const up = (s) => String(s ?? "").toUpperCase();
 const two = (n) => String(n).padStart(2, "0");
 
+// not drawn at the moment: the stardate is out of the title bar for now
 function stardate(now) {
   // a made-up but steady stardate: year, then the day's fraction of the year
   const d = new Date(now);
@@ -257,14 +258,14 @@ export default class Lcars25 extends View {
     const row = (m) => {
       const ready = m.layout === "ready";
       return h_flex().id(`new-space-${m.name ?? "local"}`).w_full().h(24).flex_none().items_center().justify_end().px(8)
-        .text_color(ready ? P.light : P.mid).text_size(12).font_weight(700)
+        .text_color(ready ? P.light : P.mid).text_size(14).font_weight(700)
         .when(ready, (el) => el.cursor_pointer().hover((st) => st.bg(P.light).text_color(P.black))
           .on_click(() => { close(); run("space.new", m.name ? { machine: m.name } : {}); }))
         .child(up(`${m.name ?? "this computer"}${ready ? "" : " · " + m.layout}`));
     };
     return div().size_full().bg(P.dark).rounded(R).p(T).child(
       v_flex().size_full().bg(P.black).rounded(r).p(6).gap(GAP)
-        .child(h_flex().w_full().justify_end().px(8).text_color(P.red).text_size(11).font_weight(700).child("NEW SPACE ON"))
+        .child(h_flex().w_full().justify_end().px(8).text_color(P.red).text_size(13).font_weight(700).child("NEW SPACE ON"))
         .children(all.map(row)));
   }
 
@@ -275,11 +276,11 @@ export default class Lcars25 extends View {
     const space = spaces().find((s) => s.active);
     return v_flex().id("sidetop").size_full().bg(P.bg).gap(4).on_mouse_down("right", onRight(globalMenu))
       .child(fade(div().id("machine").w_full().h(STRIP).flex_none().bg(f.mid).rounded_tl(R).rounded_tr(4).flex().items_end().justify_end()
-        .px(10).pb(2).text_color(P.black).text_size(11).font_weight(700).child(up(space?.machine ?? "this computer")), on, 0))
+        .px(10).pb(2).text_color(P.black).text_size(13).font_weight(700).child(up(space?.machine ?? "this computer")), on, 0))
       .child(fade(div().id("loop-top").w_full().flex_1().min_h(0).bg(f.dark).rounded_tl(R).rounded_tr(R).pt(T).px(T), on, 1)
-        .child(h_flex().size_full().bg(P.black).rounded_tl(r).rounded_tr(r).items_end().justify_end().gap(8).px(8)
-          .child(div().text_color(f.light).text_size(11).font_weight(700).child("SPACES"))
-          .child(div().text_color(P.red).text_size(15).font_weight(700).child(two(spaces().length)))));
+        .child(h_flex().size_full().bg(P.black).rounded_tl(r).rounded_tr(r).items_end().justify_end().gap(8).px(10)
+          .child(div().text_color(f.light).text_size(13).font_weight(700).child("SPACES"))
+          .child(div().text_color(P.red).text_size(17).font_weight(700).child(two(spaces().length)))));
   }
 
   // The sidebar: the loop's two sides, with spaces then crew between them, every label set to the right.
@@ -289,7 +290,11 @@ export default class Lcars25 extends View {
     const crew = agents();
     this.track(cx); // notes who just started needing you and who just finished, for the alert, the hail and the glow
     const atWork = crew.some((a) => a.status === "working");
-    setAgentOrder(crew.map((a) => a.address));
+    // at work or waiting first, then the ones standing by; the keyboard order follows what is drawn
+    const rank = { blocked: 0, working: 1, done: 2 };
+    const sorted = [...crew].sort((a, b) => (rank[a.status] ?? 3) - (rank[b.status] ?? 3));
+    const live = (a) => a.status in rank;
+    setAgentOrder(sorted.map((a) => a.address));
     const space = (s, i) => {
       const hail = s.status === "blocked" && !s.active;
       const lit = s.active || hail;
@@ -305,9 +310,9 @@ export default class Lcars25 extends View {
         .when(hail, (el) => el.loop("opacity", { from: 0.5, to: 1, period: 900 }))
         .on_click(() => run("space.select", { id: s.id }))
         .on_mouse_down("right", onRight(() => menu("space", { id: s.id })))
-        .child(div().relative().flex_none().text_color(lit ? P.black : f.mid).text_size(10).font_weight(700)
+        .child(div().relative().flex_none().text_color(lit ? P.black : f.light).text_size(12).font_weight(700)
           .child(`${two(s.index)}${s.machine ? " · " + up(s.machine).slice(0, 4) : ""}`))
-        .child(div().relative().flex_1().min_w(0).flex().justify_end().text_color(lit ? P.black : f.light).text_size(12).font_weight(700)
+        .child(div().relative().flex_1().min_w(0).flex().justify_end().text_color(lit ? P.black : f.light).text_size(14).font_weight(700)
           .child(div().truncate().child(up(s.name))))
         // the tick at the right edge: lit when something in the space is working or done
         .child(div().id(`space-tick-${s.id}`).relative().w(4).h_full().flex_none().bg(s.status === "done" ? P.amber : busy ? (s.active ? P.black : f.light) : lit ? P.black : f.dark)
@@ -317,21 +322,32 @@ export default class Lcars25 extends View {
       const glow = this.glow.has(a.address); // it just stopped working
       const fin = glow || a.status === "done"; // finished: pulsing just now, or waiting to be seen
       const c = fin ? P.amber : STATUS[a.status] ?? f.mid;
-      return h_flex().id(`agent-${a.address}`).relative().w_full().h(30).flex_none().gap(6).items_center().pl(4).cursor_pointer()
+      // the tab's own name leads; a bare number or no name keeps the program in front of it
+      const name = a.tab_name && !/^\d+$/.test(a.tab_name) ? up(a.tab_name) : up(`${a.program?.name ?? a.app ?? "agent"} · ${a.tab_name ?? ""}`).replace(/ · $/, "");
+      const strong = a.status !== "idle" || a.focused || fin;
+      const tone = a.status === "blocked" || fin ? c : f.light;
+      const word = fin ? "DONE" : WORD[a.status] ?? up(a.status);
+      return h_flex().id(`agent-${a.address}`).relative().w_full().h(34).flex_none().gap(8).items_center().pl(4).cursor_pointer()
         .hover((st) => st.opacity(0.8))
         .on_click(() => run("agent.focus", { terminal: a.address }))
         .on_mouse_down("right", onRight(() => menu("pane", { pane: a.pane, terminal: a.address })))
         .child(v_flex().id(`agent-words-${a.address}-${glow ? "pulse" : "still"}`).relative().flex_1().min_w(0).items_end()
           .when(glow, (el) => el.loop("opacity", { from: 0.4, to: 1, period: 800, easing: "ease-in-out" }))
-          .child(div().max_w_full().text_size(11).font_weight(700).text_color(fin ? P.amber : a.focused ? P.white : f.light).truncate()
-            .child(up(`${a.program?.name ?? a.app ?? "agent"} · ${a.tab_name}`)))
-          .child(div().max_w_full().text_size(9).text_color(a.status === "blocked" || fin ? c : f.mid).truncate()
-            .child(`${fin ? "DONE" : WORD[a.status] ?? up(a.status)} · ${up(a.space_name)}`)))
+          .child(div().max_w_full().text_size(13).when(strong, (el) => el.font_weight(700)).text_color(fin ? P.amber : a.focused ? P.white : f.light).truncate()
+            .child(name))
+          .child(h_flex().max_w_full().gap(4).text_size(11).text_color(tone)
+            .child(div().flex_none().when(strong, (el) => el.font_weight(700)).child(word))
+            .child(div().min_w(0).truncate().child(`· ${up(a.space_name)}`))))
         .child(div().relative().w(0).h(24).flex_none()
           .when(this.hail.has(a.address), (el) => el.child(ring(a.address, 0, 1500)).child(ring(a.address, 1, 2300))))
-        .child(div().id(`agent-light-${a.address}`).relative().w(4).h(24).flex_none().bg(c)
+        .child(div().id(`agent-light-${a.address}`).relative().w(4).h(30).flex_none().bg(c)
           .when(a.status === "blocked", (el) => el.loop("opacity", { from: 0.35, to: 1, period: 700 })));
     };
+    const rows = [];
+    sorted.forEach((a, i) => {
+      if (i > 0 && !live(a) && live(sorted[i - 1])) rows.push(h_flex().id("crew-rule").w_full().h(7).flex_none().items_center().pl(6).pr(10).child(div().flex_1().h(1).bg(f.dark)));
+      rows.push(member(a));
+    });
     // where the crew's heading starts, measured as the rows above it are laid out
     const crewAt = FIRST + list.length * (ROW + GAP) + NEW + GAP + HEAD_TOP;
     return h_flex().id("side").size_full().bg(P.bg).on_mouse_down("right", onRight(globalMenu))
@@ -346,14 +362,14 @@ export default class Lcars25 extends View {
         .child(svg("mods/lcars25/delta.svg").absolute().left(14).bottom(10).w(84).h(100).text_color(f.ghost))
         .children(list.map(space))
         .child(h_flex().id("space-new").w_full().h(NEW).flex_none().items_center().justify_end().pr(10)
-          .text_color(f.mid).text_size(10).font_weight(700).cursor_pointer().hover((st) => st.text_color(f.light))
+          .text_color(f.light).text_size(12).font_weight(700).cursor_pointer().hover((st) => st.text_color(P.white))
           .on_click(() => newSpace()).on_mouse_down("right", onRight(newSpace)).child("+ NEW SPACE"))
         // the crew's heading: a bar of the band's colour across the panel, the label and the count at its right
         .child(fade(h_flex().id("crew-heading").w_full().h(HEAD).flex_none().mt(HEAD_TOP).mb(2).items_center().gap(8), on, 3 + list.length)
           .child(div().flex_1().h(T).bg(f.dark)) // it meets the red block on the band: a branch
-          .child(div().flex_none().text_color(f.light).text_size(11).font_weight(700).child("CREW"))
-          .child(div().flex_none().pr(10).text_color(P.red).text_size(15).font_weight(700).child(two(crew.length))))
-        .children(crew.map(member)))
+          .child(div().flex_none().text_color(f.light).text_size(13).font_weight(700).child("CREW"))
+          .child(div().flex_none().pr(10).text_color(P.red).text_size(17).font_weight(700).child(two(crew.length))))
+        .children(rows))
       .child(plug("side-edge", f, list.findIndex((s) => s.active), f.dark));
   }
 
@@ -369,7 +385,7 @@ export default class Lcars25 extends View {
     return fade(div().id("loop-bottom").size_full().bg(f.dark).rounded_bl(R).rounded_br(R).pb(T).px(T), on, 4)
       .on_mouse_down("right", onRight(globalMenu))
       .child(h_flex().size_full().bg(P.black).rounded_bl(r).rounded_br(r).items_start().justify_between().px(10).pt(4)
-        .text_size(11).font_weight(700)
+        .text_size(13).font_weight(700)
         .child(h_flex().id("menu").gap(8).items_center().text_color(f.light).cursor_pointer().hover((st) => st.opacity(0.7))
           .on_click(() => menu("global", {}))
           .child(div().id("settings").cursor_pointer().hover((st) => st.opacity(0.6))
@@ -378,7 +394,7 @@ export default class Lcars25 extends View {
             .on_click(() => run("app.settings"))
             .child(svg("mods/lcars25/gear.svg").size(13).text_color(f.light)))
           .child("MENU"))
-        .child(div().id("palette").text_color(f.mid).text_size(10).cursor_pointer().hover((st) => st.opacity(0.7))
+        .child(div().id("palette").text_color(f.light).text_size(12).cursor_pointer().hover((st) => st.opacity(0.7))
           .on_click(() => run("app.palette")).child(`${appWindow()?.platform === "macos" ? "⌘" : "CTRL"} SHIFT P`)));
   }
 
@@ -391,7 +407,7 @@ export default class Lcars25 extends View {
     const seg = (t, i) => {
       const hail = t.status === "blocked" && !t.active;
       return grow(h_flex().id(`tab-${t.id}`).relative().h_full().flex_none().bg(t.active ? f.light : hail ? P.red : i % 2 ? f.mid2 : f.mid).items_end().justify_end()
-        .gap(6).px(10).pb(2).text_color(P.black).text_size(11).font_weight(700).cursor_pointer(), on, Math.max(120, 60 + up(t.name).length * 7), i)
+        .gap(6).px(10).pb(2).text_color(P.black).text_size(13).font_weight(700).cursor_pointer(), on, Math.max(120, 60 + up(t.name).length * 7), i)
         .when(i === 0, (el) => el.rounded_tl(STRIP - 2))
         .hover((st) => st.opacity(0.8))
         .when(hail, (el) => el.loop("opacity", { from: 0.5, to: 1, period: 800 }))
@@ -399,7 +415,7 @@ export default class Lcars25 extends View {
         .on_mouse_down("right", onRight(() => menu("tab", { id: t.id, space: space.id })))
         .when(t.active, (el) => el.child(gradient(f.light, f.glint)))
         // a black chip set into the segment's lower left, with the tab's number in red
-        .child(div().relative().flex_none().h(13).px(5).mb(1).bg(P.black).flex().items_center().text_color(P.red).text_size(10).child(two(t.index)))
+        .child(div().relative().flex_none().h(14).px(5).mb(1).bg(P.black).flex().items_center().text_color(P.red).text_size(12).child(two(t.index)))
         .child(div().flex_1())
         .when(t.status === "working" || t.status === "done", (el) => el
           .child(div().relative().w(8).h(8).mb(3).flex_none().bg(t.status === "done" ? P.amber : P.black)))
@@ -408,17 +424,17 @@ export default class Lcars25 extends View {
     return h_flex().id("tab-bar").size_full().bg(P.bg).gap(GAP).on_mouse_down("right", onRight(globalMenu))
       .children(shown.map(seg))
       .child(h_flex().id("tab-new").h_full().w(40).flex_none().bg(f.mid).items_end().justify_end().px(10).pb(1)
-        .text_color(P.black).text_size(15).font_weight(700).cursor_pointer().hover((st) => st.bg(f.light))
+        .text_color(P.black).text_size(17).font_weight(700).cursor_pointer().hover((st) => st.bg(f.light))
         .when(!shown.length, (el) => el.rounded_tl(STRIP - 2))
         .on_click(() => newMenu()).on_mouse_down("right", onRight(newMenu)).child("+"))
       // the dark run, with a black card set into it: the shown space's number, machine and tab count in red
-      .child(fade(h_flex().id("tab-run").flex_1().min_w(0).h_full().bg(f.dark).items_center().justify_end().pr(12), on, shown.length + 1)
-        .child(div().flex_none().h(16).px(8).bg(P.black).flex().items_center().text_color(P.red).text_size(10).font_weight(700)
+      .child(fade(h_flex().id("tab-run").flex_1().min_w(0).h_full().bg(f.dark).items_center().justify_end().pr(10), on, shown.length + 1)
+        .child(div().flex_none().h(16).px(8).bg(P.black).flex().items_center().text_color(P.red).text_size(12).font_weight(700)
           .child(space ? `${two(space.index)} · ${up(space.machine ?? "this computer")} · ${two(shown.length)} TABS` : "")));
   }
 
   // Under the strip: two hairlines, then a line with the alerts at the left and, set to the right, the load, the
-  // stardate, the clock and the shown space's name in red.
+  // clock and the shown space's name in red, between hairlines.
   title() {
     const f = frame(), red = alert(), on = this.on;
     const space = spaces().find((s) => s.active);
@@ -426,12 +442,13 @@ export default class Lcars25 extends View {
     const need = crew.filter((a) => a.status === "blocked").length;
     const done = crew.filter((a) => a.status === "done").length;
     const sys = this.sys;
+    const rule = () => div().flex_none().w(1).h(16).bg(f.dark); // a hairline between the load, the clock and the name
     // this computer's load, kept quiet: a dim label, the figure, and a 2px line that eases to each new reading
-    const meter = (id, label, share) => v_flex().flex_none().w(60).gap(2)
-      .child(h_flex().w_full().justify_between().text_size(10).text_color(f.mid)
+    const meter = (id, label, share) => v_flex().flex_none().w(68).gap(2)
+      .child(h_flex().w_full().justify_between().text_size(12).text_color(f.mid)
         .child(label).child(div().text_color(f.light).child(sys ? `${Math.round(share * 100)}%` : "--")))
       .child(div().w_full().h(2).bg(f.dark)
-        .child(div().id(id).h_full().w(Math.round(60 * (sys ? share : 0))).bg(share > 0.85 ? P.red : f.light)
+        .child(div().id(id).h_full().w(Math.round(68 * (sys ? share : 0))).bg(share > 0.85 ? P.red : f.light)
           .transition("width", { duration: 900, easing: "ease-out" })));
     // on red alert a row of bars beside the words, each pulsing at its own pace, as on the alert displays
     // otherwise one row of them sits dark and still
@@ -446,20 +463,21 @@ export default class Lcars25 extends View {
       .child(fade(v_flex().id("hairlines").w_full().flex_none().pt(3).pl(r).gap(3), on, 2)
         .child(h_flex().w_full().h(2).gap(GAP).child(div().flex_1().h_full().bg(f.light)).child(div().w(280).h_full().bg(f.accent)))
         .child(div().w_full().h(1).bg(f.mid)))
-      .child(h_flex().w_full().flex_1().min_h(0).items_center().gap(14).pl(r).pr(8)
+      .child(h_flex().w_full().flex_1().min_h(0).items_center().gap(14).pl(r).pr(10)
         .child(bars("l"))
         .when(red, (el) => el
-          .child(div().flex_none().text_color(P.red).text_size(15).font_weight(700)
+          .child(div().flex_none().text_color(P.red).text_size(17).font_weight(700)
             .child(`ALERT CONDITION: RED · ${two(need)} ${need === 1 ? "AGENT NEEDS" : "AGENTS NEED"} YOU`))
           .child(bars("r")))
-        .when(!red && done > 0, (el) => el.child(div().id("yellow-alert").flex_none().text_color(P.amber).text_size(12).font_weight(700)
+        .when(!red && done > 0, (el) => el.child(div().id("yellow-alert").flex_none().text_color(P.amber).text_size(14).font_weight(700)
           .child(`ALERT CONDITION: YELLOW · ${two(done)} FINISHED, NOT SEEN`)))
         .child(div().flex_1())
         .child(meter("sys-cpu", "CPU", sys?.cpu ?? 0))
         .child(meter("sys-mem", "MEM", sys?.mem ?? 0))
-        .child(div().flex_none().text_color(f.mid).text_size(10).child(stardate(this.now)))
-        .child(div().flex_none().text_color(f.light).text_size(13).font_weight(700).child(new Date(this.now).toTimeString().slice(0, 5)))
-        .child(fade(div().id("space-name").flex_none().text_color(P.red).text_size(17).font_weight(700).child(up(space?.name ?? "HERDR")), on, 3))));
+        .child(rule())
+        .child(div().flex_none().text_color(f.light).text_size(15).font_weight(700).child(new Date(this.now).toTimeString().slice(0, 5)))
+        .child(rule())
+        .child(fade(div().id("space-name").flex_none().text_color(P.red).text_size(20).font_weight(700).child(up(space?.name ?? "HERDR")), on, 3))));
   }
 
   // The loop's top-right corner, in the accent: as tall as the strip across the top, a band's width down the side.
@@ -475,7 +493,7 @@ export default class Lcars25 extends View {
     // between the accent and the grey, a ladder of ticks: one per agent, in its status colour
     const tick = (a) => div().id(`tick-${a.address}`).w_full().h(8).flex_none().bg(STATUS[a.status] ?? f.dark)
       .when(a.status === "blocked", (el) => el.loop("opacity", { from: 0.3, to: 1, period: 700 }));
-    return v_flex().id("band").size_full().bg(P.bg).gap(GAP + 1)
+    return v_flex().id("band").size_full().bg(P.bg).gap(GAP)
       .child(fade(div().id("band-accent").w_full().h(150).flex_none().bg(f.accent), on, 5))
       .children(agents().map(tick))
       .child(fade(h_flex().id("band-rest").w_full().flex_1().gap(GAP), on, 7)
@@ -497,19 +515,22 @@ export default class Lcars25 extends View {
     const working = count("working");
     const here = spaces().find((sp) => sp.active)?.tabs.find((t) => t.active)?.status === "working";
     const away = machines().filter((m) => m.name).length;
-    const item = (color, text) => div().flex_none().text_color(color).child(text);
+    const item = (color, text, lit) => h_flex().flex_none().gap(6).items_center().text_color(color)
+      .child(lit ? div().w(6).h(6).flex_none().bg(color) : div().w(6).h(6).flex_none().border(1).border_color(color))
+      .child(text);
     const scan = h_flex().id("scan").absolute().top(0).h_full().w(200)
       .child(div().relative().flex_1().h_full().child(gradient("#ffffff00", "#ffffffe0")))
       .child(div().relative().flex_1().h_full().child(gradient("#ffffffe0", "#ffffff00")))
       .loop("left", { from: -200, to: 1800, period: Math.max(4000, 11000 - working * 1500), easing: "linear" });
     return v_flex().id("bottom").size_full().bg(P.bg).on_mouse_down("right", onRight(globalMenu))
       .child(div().w_full().flex_1().min_h(0).bg(f.dark).pl(T).child(h_flex().size_full().bg(P.bg).rounded_bl(r).items_center().justify_end()
-        .gap(16).pl(8).pr(8).text_size(11).font_weight(700)
-        .child(item(f.light, `${two(working)} WORKING`))
-        .child(item(count("blocked") ? P.red : f.mid, `${two(count("blocked"))} NEED YOU`))
-        .child(item(count("done") ? P.amber : f.mid, `${two(count("done"))} DONE`))
-        .child(item(f.mid, `${two(away + 1)} MACHINES`))))
-      .child(h_flex().w_full().h(T).flex_none().gap(GAP + 1)
+        .gap(16).pl(8).pr(10).text_size(13).font_weight(700)
+        .child(item(working ? f.light : f.mid, `${two(working)} WORKING`, working > 0))
+        .child(item(count("blocked") ? P.red : f.mid, `${two(count("blocked"))} NEED YOU`, count("blocked") > 0))
+        .child(item(count("done") ? P.amber : f.mid, `${two(count("done"))} DONE`, count("done") > 0))
+        .child(div().flex_none().w(1).h(14).bg(f.dark))
+        .child(div().flex_none().text_color(f.light).child(`${two(away + 1)} MACHINES`))))
+      .child(h_flex().w_full().h(T).flex_none().gap(GAP)
         .child(grow(div().id("lower-0").h_full().flex_none().bg(f.dark).rounded_bl(T), on, 180, 6))
         .child(fade(div().id("lower-1").relative().flex_1().h_full().bg(f.mid).overflow_hidden(), on, 7)
           .when(here && on, (el) => el.child(scan)))); // only while the shown tab itself is at work
@@ -522,10 +543,10 @@ export default class Lcars25 extends View {
     if (!p) return div();
     const c = STATUS[p.status];
     return h_flex().id(`pane-${p.pane}`).size_full().bg(P.bg).items_center().gap(6).px(6)
-      .child(div().flex_none().h(13).px(8).bg(p.focused ? f.light : f.dark).flex().items_center()
-        .text_color(p.focused ? P.black : f.mid).text_size(10).font_weight(700).child(up(p.program?.name ?? p.app ?? p.mod ?? "shell")))
-      .when(!!c, (el) => el.child(div().flex_none().text_color(c).text_size(10).font_weight(700).child(WORD[p.status])))
-      .child(div().flex_1().min_w(0).text_color(f.mid).text_size(10).truncate().child(up(p.title)))
-      .when(!!p.branch, (el) => el.child(div().flex_none().text_color(P.red).text_size(10).child(up(p.branch))));
+      .child(div().flex_none().h(14).px(8).bg(p.focused ? f.light : f.dark).flex().items_center()
+        .text_color(p.focused ? P.black : f.mid).text_size(12).font_weight(700).child(up(p.program?.name ?? p.app ?? p.mod ?? "shell")))
+      .when(!!c, (el) => el.child(div().flex_none().text_color(c).text_size(12).font_weight(700).child(WORD[p.status])))
+      .child(div().flex_1().min_w(0).text_color(f.light).text_size(12).truncate().child(up(p.title)))
+      .when(!!p.branch, (el) => el.child(div().flex_none().text_color(P.red).text_size(12).child(up(p.branch))));
   }
 }
