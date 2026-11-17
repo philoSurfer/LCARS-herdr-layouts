@@ -101,18 +101,9 @@ const breath = (id, from, to_, to, period) => div().id(id).absolute().top(0).lef
 const grow = (el, on, w, i) => el.w(on ? w : 0).overflow_hidden().transition("width", { duration: 520, delay: i * 70, easing: "ease-out" });
 const fade = (el, on, i) => el.opacity(on ? 1 : 0).transition("opacity", { duration: 480, delay: 200 + i * 70 });
 
-// Materialise: for GLOW ms after an agent finishes, its crew row sparkles like a transporter beam: specks of amber
-// and white scattered across the row, each winking at its own pace, most small and a few larger and fainter. They
-// are drawn behind the words, so the text stays legible.
-const GLOW = 2400;
-const rnd = (n) => { const x = Math.sin(n * 127.1) * 43758.5453; return x - Math.floor(x); }; // a steady scatter, 0 to 1
-const shimmer = (key) => Array.from({ length: 40 }, (_, i) => {
-  const big = i % 7 === 0, size = big ? 4 : i % 3 ? 2 : 1;
-  return div().id(`speck-${key}-${i}`).absolute().rounded_full()
-    .left(3 + Math.floor(rnd(i * 2 + 1) * (INNER - 10))).top(1 + Math.floor(rnd(i * 2 + 2) * 26)).w(size).h(size)
-    .bg(i % 4 === 1 ? P.white : P.amber)
-    .loop("opacity", { from: 0, to: big ? 0.45 : 0.95, period: 140 + ((i * 61) % 420) });
-});
+// Materialise: for GLOW ms after an agent finishes, its crew row's lettering turns amber and pulses slowly. The pulse
+// then stops and the lettering stays amber for as long as the agent is "done", which is until you look at it.
+const GLOW = 3200;
 
 // Hail: for HAIL ms after an agent starts needing you, two rings swell from its status light and fade as they grow,
 // each at its own pace. A ring is a round outline whose size, place and opacity swing together. It is placed from a
@@ -279,17 +270,18 @@ export default class Lcars25 extends View {
     };
     const member = (a) => {
       const glow = this.glow.has(a.address); // it just stopped working
-      const c = glow ? P.amber : STATUS[a.status] ?? f.mid;
+      const fin = glow || a.status === "done"; // finished: pulsing just now, or waiting to be seen
+      const c = fin ? P.amber : STATUS[a.status] ?? f.mid;
       return h_flex().id(`agent-${a.address}`).relative().w_full().h(30).flex_none().gap(6).items_center().pl(4).cursor_pointer()
         .hover((st) => st.opacity(0.8))
         .on_click(() => run("agent.focus", { terminal: a.address }))
         .on_mouse_down("right", onRight(() => menu("pane", { pane: a.pane, terminal: a.address })))
-        .when(glow, (el) => el.children(shimmer(a.address))) // first, so it lies behind the words
-        .child(v_flex().relative().flex_1().min_w(0).items_end()
-          .child(div().max_w_full().text_size(11).font_weight(700).text_color(a.focused ? P.white : f.light).truncate()
+        .child(v_flex().id(`agent-words-${a.address}-${glow ? "pulse" : "still"}`).relative().flex_1().min_w(0).items_end()
+          .when(glow, (el) => el.loop("opacity", { from: 0.4, to: 1, period: 800, easing: "ease-in-out" }))
+          .child(div().max_w_full().text_size(11).font_weight(700).text_color(fin ? P.amber : a.focused ? P.white : f.light).truncate()
             .child(up(`${a.program?.name ?? a.app ?? "agent"} · ${a.tab_name}`)))
-          .child(div().max_w_full().text_size(9).text_color(a.status === "blocked" || glow ? c : f.mid).truncate()
-            .child(`${glow ? "DONE" : WORD[a.status] ?? up(a.status)} · ${up(a.space_name)}`)))
+          .child(div().max_w_full().text_size(9).text_color(a.status === "blocked" || fin ? c : f.mid).truncate()
+            .child(`${fin ? "DONE" : WORD[a.status] ?? up(a.status)} · ${up(a.space_name)}`)))
         .child(div().relative().w(0).h(24).flex_none()
           .when(this.hail.has(a.address), (el) => el.child(ring(a.address, 0, 1500)).child(ring(a.address, 1, 2300))))
         .child(div().id(`agent-light-${a.address}`).relative().w(4).h(24).flex_none().bg(c)
