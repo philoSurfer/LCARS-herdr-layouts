@@ -140,19 +140,6 @@
               }
             }
           ]
-        },
-        {
-          "id": "systems",
-          "type": "block",
-          "content": {
-            "mod": "lcars25",
-            "props": {
-              "part": "systems"
-            }
-          },
-          "size": {
-            "px": 168
-          }
         }
       ]
     },

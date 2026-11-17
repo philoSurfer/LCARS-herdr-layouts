@@ -1,7 +1,7 @@
 // LCARS 25: a lighter, cooler LCARS frame, after the 25th-century displays. One mod draws every part; the layout says
 // which with props().part: "top" (the corner, the thin arm and the title), "side" (spaces and crew on a segmented
-// spine), "tabs", "pane" (each pane's header strip), "systems" (the right rail: this computer's load, the agents by
-// state, a number cascade) and "bottom" (the lower corner and the status line). As a popup it is "machines".
+// spine), "tabs", "pane" (each pane's header strip) and "bottom" (the lower corner and the status line). As a popup
+// it is "machines". The title area carries this computer's CPU and memory as two small gauges.
 // Right-clicks open Herdr's own menu mod, so rename, close, split and worktrees work as in its other layouts.
 import { View, div, svg, PathBuilder, Background } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
@@ -19,7 +19,6 @@ const STATUS = { working: "#8fc1ff", blocked: "#ff5a47", done: "#f2b24a", idle: 
 const WORD = { working: "WORKING", blocked: "NEEDS YOU", done: "DONE", idle: "STANDING BY" };
 const SHORT = { working: "WRK", blocked: "HAIL", done: "DONE", idle: "STBY" };
 const SPINE = 52; // the left spine's width: the corners and every row's cap
-const RAIL = 168; // the systems rail's width
 const ARM = 10; // the thickness of the top arm
 const GAP = 3; // background between blocks
 
@@ -51,21 +50,17 @@ const alert = () => shared(ALERT) === "red" && agents().some((a) => a.status ===
 const frame = () => (alert() ? RED : P);
 const chase = (el, on, i) => (on ? el.loop("opacity", { from: 0.35, to: 1, period: 700 + i * 170 }) : el);
 
-// This computer's load, for the systems rail: one small shell script every SYS ms, never while `herdr-app check` runs.
+// This computer's load, for the title area: one small shell script every SYS ms, never while `herdr-app check` runs.
 const SYS = 5000;
 const SYS_SCRIPT = String.raw`
 case "$(uname)" in
 Darwin)
   echo "ncpu $(sysctl -n hw.ncpu)"
-  echo "load $(sysctl -n vm.loadavg | tr -d '{}')"
   echo "memtotal $(sysctl -n hw.memsize)"
-  vm_stat | awk -v ps="$(sysctl -n hw.pagesize)" '/Pages active|Pages wired down|occupied by compressor/ {gsub(/\./,"",$NF); s+=$NF} END {printf "memused %.0f\n", s*ps}'
-  df -k /System/Volumes/Data 2>/dev/null | awk 'NR==2 {print "disk " $3 " " $3+$4}' ;;
+  vm_stat | awk -v ps="$(sysctl -n hw.pagesize)" '/Pages active|Pages wired down|occupied by compressor/ {gsub(/\./,"",$NF); s+=$NF} END {printf "memused %.0f\n", s*ps}' ;;
 *)
   echo "ncpu $(nproc)"
-  echo "load $(cut -d' ' -f1-3 /proc/loadavg)"
-  awk '/MemTotal/ {t=$2} /MemAvailable/ {a=$2} END {printf "memtotal %.0f\nmemused %.0f\n", t*1024, (t-a)*1024}' /proc/meminfo
-  df -k / | awk 'NR==2 {print "disk " $3 " " $3+$4}' ;;
+  awk '/MemTotal/ {t=$2} /MemAvailable/ {a=$2} END {printf "memtotal %.0f\nmemused %.0f\n", t*1024, (t-a)*1024}' /proc/meminfo ;;
 esac
 echo "cpusum $(ps -A -o %cpu= | awk '{s+=$1} END {print s+0}')"
 `;
@@ -76,28 +71,20 @@ async function systems() {
   const ncpu = v.ncpu?.[0] || 1;
   const frac = (a, b) => (b > 0 ? Math.max(0, Math.min(1, a / b)) : 0);
   return {
-    ncpu, cpu: frac(v.cpusum?.[0] ?? 0, ncpu * 100), load: v.load ?? [0, 0, 0],
+    cpu: frac(v.cpusum?.[0] ?? 0, ncpu * 100),
     mem: frac(v.memused?.[0], v.memtotal?.[0]), memGb: (v.memused?.[0] ?? 0) / 2 ** 30,
-    disk: frac(v.disk?.[0], v.disk?.[1]),
   };
 }
-// the telemetry cascade: rows of made-up numbers, each row stepping through its own list at its own pace
-const CASCADE = Array.from({ length: 48 }, (_, row) => {
-  const num = (n) => String(Math.floor(Math.random() * 10 ** n)).padStart(n, "0");
-  return { ms: 420 + ((row * 173) % 610), list: Array.from({ length: 12 }, () => `${num(4)} ${num(4)} ${num(3)} ${num(2)} ${num(4)}`) };
-});
-
 // a layer that fills its (relative) parent with a left-to-right gradient
 const RECT = () => PathBuilder.fill().move_to("0%", "0%").line_to("100%", "0%").line_to("100%", "100%").line_to("0%", "100%").close().build();
 const gradient = (from, to) => window.paint_path(RECT(), Background.linear_gradient(90, from, to)).absolute().top(0).left(0).size_full();
 
 // a section's heading: a numbered cap on the spine, then a dark strip with the name
-function heading(id, f, n, name, right) {
+function heading(id, f, n, name) {
   const cap = div().w(SPINE).h_full().flex_none().bg(f.slate).flex().items_center().justify_end().pr(6)
     .text_color(P.black).text_size(11).font_weight(700).child(two(n));
   const strip = h_flex().flex_1().h_full().bg(f.deep).items_center().px(8).text_color(f.ink).text_size(11).font_weight(700).child(up(name));
-  const row = h_flex().id(id).w_full().h(16).flex_none().gap(GAP);
-  return right ? row.child(strip.rounded_l(8)).child(cap.rounded_r(8).justify_start().pl(6)) : row.child(cap.rounded_l(8)).child(strip);
+  return h_flex().id(id).w_full().h(16).flex_none().gap(GAP).child(cap.rounded_l(8)).child(strip);
 }
 
 // Herdr's menu mod at the pointer: tab is "space", "tab", "pane" or "global"
@@ -119,12 +106,11 @@ export default class Lcars25 extends View {
   init(_props, cx) {
     this.now = Date.now();
     const part = _props?.part ?? props()?.part;
-    if (part === "top") cx.timer.every(15000, (cx) => { this.now = Date.now(); cx.notify(); });
-    if (part === "side") cx.timer.every(WATCH, () => this.watch());
-    if (part === "systems" && !checking()) {
-      this.measure(cx);
-      cx.timer.every(SYS, (cx) => this.measure(cx));
+    if (part === "top") {
+      cx.timer.every(15000, (cx) => { this.now = Date.now(); cx.notify(); });
+      if (!checking()) { this.measure(cx); cx.timer.every(SYS, (cx) => this.measure(cx)); }
     }
+    if (part === "side") cx.timer.every(WATCH, () => this.watch());
   }
 
   // sets the shared alert when it changes; the alert sound plays once, as the frame turns red
@@ -153,7 +139,6 @@ export default class Lcars25 extends View {
     if (part === "side") return this.side();
     if (part === "tabs") return this.tabs();
     if (part === "pane") return this.pane();
-    if (part === "systems") return this.systems();
     if (part === "bottom") return this.bottom();
     if (part === "machines") return this.machines();
     return div().child(`lcars25: unknown part ${part}`);
@@ -188,6 +173,14 @@ export default class Lcars25 extends View {
       .child(div().relative().flex_1().h_full().child(gradient("#ffffff00", "#ffffffb0")))
       .child(div().relative().flex_1().h_full().child(gradient("#ffffffb0", "#ffffff00")))
       .loop("left", { from: -160, to: 1800, period: Math.max(4000, 11000 - working * 1500), easing: "linear" });
+    // this computer's load, kept quiet: a dim label, the figure, and a 2px line that eases to each new reading
+    const sys = this.sys;
+    const meter = (id, label, share, color) => v_flex().flex_none().w(64).gap(2)
+      .child(h_flex().w_full().justify_between().text_size(10).text_color(f.dim)
+        .child(label).child(div().text_color(f.ink).child(sys ? `${Math.round(share * 100)}%` : "--")))
+      .child(div().w_full().h(2).bg(f.line)
+        .child(div().id(id).h_full().w(Math.round(64 * (sys ? share : 0))).bg(share > 0.85 ? STATUS.blocked : color)
+          .transition("width", { duration: 900, easing: "ease-out" })));
     const arm = h_flex().w_full().h(ARM).flex_none().gap(GAP)
       .child(chase(div().id("top-arm-0").w(140).h_full().bg(f.steel), red, 0))
       .child(chase(div().id("top-arm-1").w(36).h_full().bg(f.ice), red, 1))
@@ -208,6 +201,8 @@ export default class Lcars25 extends View {
         .when(red, (el) => el.child(div().id("red-alert").flex_none().h(20).px(12).rounded(10).bg(STATUS.blocked).flex().items_center()
           .text_color(P.black).text_size(12).font_weight(700).loop("opacity", { from: 0.45, to: 1, period: 900 })
           .child(`RED ALERT · ${two(need)} ${need === 1 ? "AGENT NEEDS" : "AGENTS NEED"} YOU`)))
+        .child(meter("sys-cpu", "CPU", sys?.cpu ?? 0, STATUS.working))
+        .child(meter("sys-mem", "MEM", sys?.mem ?? 0, f.slate))
         .child(div().text_color(P.amber).text_size(11).child(`STARDATE ${stardate(this.now)}`))
         .child(div().text_color(f.ink).text_size(13).font_weight(700).child(new Date(this.now).toTimeString().slice(0, 5))));
     return h_flex().id("top").size_full().bg(P.bg).on_mouse_down("right", onRight(globalMenu))
@@ -299,48 +294,6 @@ export default class Lcars25 extends View {
       .when(!!c, (el) => el.child(div().flex_none().text_color(c).text_size(10).font_weight(700).child(WORD[p.status])))
       .child(div().flex_1().min_w(0).text_color(f.dim).text_size(10).truncate().child(up(p.title)))
       .when(!!p.branch, (el) => el.child(div().flex_none().text_color(P.amber).text_size(10).child(up(p.branch))));
-  }
-
-  // The right rail: this computer's load as thin gauges that ease to each new reading, the agents by state, and a
-  // cascade of numbers. Before the first reading the gauges are empty and read "--".
-  systems() {
-    const f = frame();
-    const s = this.sys;
-    const inner = RAIL - 14; // the rail less its side padding: a full gauge
-    const pct = (x) => `${Math.round(x * 100)}%`;
-    const gauge = (id, label, value, share, from, to) => v_flex().w_full().gap(3)
-      .child(h_flex().w_full().justify_between().text_size(11).font_weight(700).text_color(f.ink)
-        .child(label).child(div().text_color(to).child(value)))
-      .child(div().w_full().h(4).bg(f.deep).overflow_hidden()
-        .child(div().id(id).relative().h_full().w(Math.round(inner * share)).overflow_hidden()
-          .transition("width", { duration: 900, easing: "ease-out" }).child(gradient(from, to))));
-    const crew = agents();
-    const state = (key, label) => {
-      const n = crew.filter((a) => a.status === key).length;
-      return h_flex().w_full().gap(6).items_center().text_size(11).font_weight(700).text_color(STATUS[key])
-        .child(div().w(54).flex_none().child(label))
-        .child(div().flex_1().h(4).bg(f.deep)
-          .child(div().id(`fleet-${key}`).h_full().w(Math.round((inner - 54 - 20 - 12) * (crew.length ? n / crew.length : 0)))
-            .bg(STATUS[key]).transition("width", { duration: 600, easing: "ease-out" })))
-        .child(div().w(20).flex_none().flex().justify_end().child(two(n)));
-    };
-    const load = s ? s.load.map((x) => x.toFixed(1)).join("  ") : "--";
-    return v_flex().id("systems").size_full().bg(P.bg).gap(GAP).py(6).on_mouse_down("right", onRight(globalMenu))
-      .child(heading("systems-label", f, s ? s.ncpu : 0, "systems", true))
-      .child(v_flex().w_full().flex_none().gap(8).pl(4).pr(10).py(6)
-        .child(gauge("sys-cpu", "CPU", s ? pct(s.cpu) : "--", s?.cpu ?? 0, P.steel, STATUS.working))
-        .child(gauge("sys-mem", "MEMORY", s ? `${pct(s.mem)} · ${s.memGb.toFixed(1)} GB` : "--", s?.mem ?? 0, P.steel, P.ice))
-        .child(gauge("sys-disk", "DISK", s ? pct(s.disk) : "--", s?.disk ?? 0, P.steel, P.amber))
-        .child(h_flex().w_full().justify_between().text_size(11).font_weight(700).text_color(f.ink)
-          .child("LOAD").child(div().text_color(f.dim).child(load))))
-      .child(heading("fleet-label", f, crew.length, "fleet", true))
-      .child(v_flex().w_full().flex_none().gap(5).pl(4).pr(10).py(6)
-        .child(state("working", "WORKING")).child(state("blocked", "NEED YOU"))
-        .child(state("done", "DONE")).child(state("idle", "STANDBY")))
-      .child(heading("telemetry-label", f, 47, "telemetry", true))
-      .child(v_flex().id("telemetry").w_full().flex_1().min_h(0).overflow_hidden().pl(4).pt(4).gap(1)
-        .children(CASCADE.map((c, i) => div().flex_none().text_size(10).text_color([f.mute, STATUS.working, f.mute, f.mute, P.amber][i % 5])
-          .frames(c.list, c.ms).child(c.list[0]))));
   }
 
   bottom() {
