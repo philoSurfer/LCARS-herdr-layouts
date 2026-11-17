@@ -5,7 +5,7 @@ Layouts for the [Herdr](https://herdr.dev) app, one folder each. Each folder has
 | Layout | |
 | --- | --- |
 | [LCARS](lcars/RECIPE.md) | A Star Trek LCARS frame: an orange elbow and sidebar of spaces and crew, status-coloured tab pills, blocked agents pulse red. |
-| [LCARS 25](lcars25/RECIPE.md) | A lighter, cooler LCARS after the 25th-century displays: steel blue and ice on navy, a thin arm with a light that runs along it while agents work, a segmented spine of spaces and crew, a header on every pane, CPU and memory in the title bar, and red alert. |
+| [LCARS 25](lcars25/RECIPE.md) | LCARS after the 25th-century displays of *Star Trek: Picard*: black, grey-blues and one red-orange. Dark pill title bars, a light grey frame on the right and bottom holding dark cards of spaces and crew, CPU and memory in the title bar, a header on every pane, and motion for power-up, working, hails and finishes. |
 | [Slate](slate/RECIPE.md) | A quiet, dense dark frame: a sidebar with the shown space pinned, cards for agents that need you with their question, spaces as colour chips with each agent's icon, agents in flight, text tabs with an underline, a task graph of the shown space on the right. |
 | [Board](board/RECIPE.md) | The xo crew as a board: a pinned Board tab, today's numbers, the next move, and NEEDS YOU / WORKING / READY TO LAND / DONE columns with Merge, Ship and Archive. Focus (F) shows the picked agent's live terminal beside it. |
 

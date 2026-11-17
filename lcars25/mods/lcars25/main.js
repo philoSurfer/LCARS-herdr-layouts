@@ -1,29 +1,25 @@
-// LCARS 25: a lighter, cooler LCARS frame, after the 25th-century displays. One mod draws every part; the layout says
-// which with props().part: "top" (the corner, the thin arm and the title), "side" (spaces and crew on a segmented
-// spine), "tabs", "pane" (each pane's header strip) and "bottom" (the lower corner and the status line). As a popup
-// it is "machines". The title area carries this computer's CPU and memory as two small gauges.
+// LCARS 25: an LCARS frame after the 25th-century displays (black, grey-blues, one red-orange). One mod draws every part;
+// the layout says which with props().part: "top" (two dark title bars), "side" (the right column: the light grey frame
+// with dark cards of spaces and crew), "tabs", "pane" (each pane's header strip) and "bottom" (the status line, the
+// thin band and the frame's corner). As a popup it is "machines". The right title bar carries this computer's CPU and
+// memory as two small gauges.
 // Right-clicks open Herdr's own menu mod, so rename, close, split and worktrees work as in its other layouts.
 import { View, div, svg, PathBuilder, Background } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { spaces, agents, machines, panes, run, props, setAgentOrder, window as appWindow, openOverlay, closeOverlay, exec,
   shared, setShared, playSound, checking } from "herdr";
 
+// The palette of the 25th-century displays: black, three grey-blues and one red-orange. Amber is ours, for "done".
 const P = {
-  bg: "#05070c", black: "#000000", steel: "#6f86c4", ice: "#c7d3ea", slate: "#9fb2dc", deep: "#1c2540", line: "#2a3556",
-  crimson: "#e0503c", amber: "#f2a23a", mute: "#7a86a8", ink: "#d6e0f5", dim: "#8c9ac0",
+  bg: "#000000", black: "#000000", panel: "#111419", dark: "#2f3749", mid: "#6d748c", light: "#9ea5ba", red: "#e7442a",
+  white: "#e6e9f2", amber: "#f2b24a",
 };
-// the frame on red alert: the steel and ice turn red. Status colours stay as they are.
-const RED = { ...P, steel: "#e0503c", ice: "#ffb3a6", slate: "#ff8877", deep: "#3a1512", line: "#5a211b", mute: "#b3594d",
-  crimson: "#ffb3a6" };
-// the frame on yellow alert: an agent finished and has not been looked at. The steel and ice turn amber.
-const YELLOW = { ...P, steel: "#d9a441", ice: "#ffe2a8", slate: "#f2c56b", deep: "#2e2410", line: "#4a3a18", mute: "#a8905a",
-  dim: "#c9b488", ink: "#ffe9c2" };
-const STATUS = { working: "#8fc1ff", blocked: "#ff5a47", done: "#f2b24a", idle: "#7f8fd0" };
+// the frame on red alert: the light grey turns red, as on the ALERT CONDITION: RED displays. Status colours stay.
+const RED = { ...P, light: "#e7442a", mid: "#b8321c", dark: "#4a130a", panel: "#1a0704" };
+const STATUS = { working: "#9ea5ba", blocked: "#e7442a", done: "#f2b24a", idle: "#6d748c" };
 const WORD = { working: "WORKING", blocked: "NEEDS YOU", done: "DONE", idle: "STANDING BY" };
-const SHORT = { working: "WRK", blocked: "HAIL", done: "DONE", idle: "STBY" };
-const SPINE = 52; // the left spine's width: the corners and every row's cap
-const ARM = 10; // the thickness of the top arm
-const GAP = 3; // background between blocks
+const COL = 220; // the right column's width
+const GAP = 4; // background between blocks
 
 const up = (s) => String(s ?? "").toUpperCase();
 const two = (n) => String(n).padStart(2, "0");
@@ -52,8 +48,7 @@ function waiting() {
 const alert = () => shared(ALERT) === "red" && agents().some((a) => a.status === "blocked");
 // yellow alert needs no clock: it is on while any agent is done and unseen, and red alert outranks it
 const yellow = () => !alert() && agents().some((a) => a.status === "done");
-const frame = () => (alert() ? RED : yellow() ? YELLOW : P);
-const chase = (el, on, i) => (on ? el.loop("opacity", { from: 0.35, to: 1, period: 700 + i * 170 }) : el);
+const frame = () => (alert() ? RED : P);
 
 // This computer's load, for the title area: one small shell script every SYS ms, never while `herdr-app check` runs.
 const SYS = 5000;
@@ -85,35 +80,32 @@ const RECT = () => PathBuilder.fill().move_to("0%", "0%").line_to("100%", "0%").
 const gradient = (from, to) => window.paint_path(RECT(), Background.linear_gradient(90, from, to)).absolute().top(0).left(0).size_full();
 
 // Power-up: a part is drawn once with `on` false, then again 80ms later with it true, and these two carry every block
-// from nothing to its place, the i-th a little after the one before: fixed blocks grow from the left, the rest fade in.
+// from nothing to its place, the i-th a little after the one before: bars grow from the left, the rest fades in.
 const grow = (el, on, w, i) => el.w(on ? w : 0).overflow_hidden().transition("width", { duration: 520, delay: i * 70, easing: "ease-out" });
 const fade = (el, on, i) => el.opacity(on ? 1 : 0).transition("opacity", { duration: 480, delay: 200 + i * 70 });
 
-// Materialise: for GLOW ms after an agent stops working, gold columns flicker over its crew row and its cap is gold.
+// Materialise: for GLOW ms after an agent stops working, amber columns flicker over its crew row.
 const GLOW = 2400;
-const GOLD = "#f2b24a";
 const shimmer = (key) => h_flex().absolute().top(0).left(0).size_full().gap(5)
-  .children(Array.from({ length: 20 }, (_, i) => div().id(`glow-${key}-${i}`).flex_1().h_full().bg(GOLD)
+  .children(Array.from({ length: 20 }, (_, i) => div().id(`glow-${key}-${i}`).flex_1().h_full().bg(P.amber)
     .loop("opacity", { from: 0, to: 0.75, period: 260 + ((i * 97) % 420) })));
 
-// Hail: for HAIL ms after an agent starts needing you, two pale rings swell from the middle of its cap and fade as they
-// grow, each at its own pace. A ring is a round outline whose size, place and opacity swing together.
+// Hail: for HAIL ms after an agent starts needing you, two rings swell from its status light and fade as they grow,
+// each at its own pace. A ring is a round outline whose size, place and opacity swing together.
 const HAIL = 8000;
 const ring = (key, n, period) => {
   const swing = (from, to) => ({ from, to, period, easing: "ease-out" });
-  return div().id(`hail-${key}-${n}`).absolute().rounded_full().border(2).border_color("#ffe3dd") // pale, to show on the red cap
-    .loop("width", swing(6, 60)).loop("height", swing(6, 60))
-    .loop("left", swing(SPINE / 2 - 3, SPINE / 2 - 30)).loop("top", swing(13, -14)).loop("opacity", swing(1, 0));
+  return div().id(`hail-${key}-${n}`).absolute().rounded_full().border(2).border_color(P.red)
+    .loop("width", swing(6, 50)).loop("height", swing(6, 50))
+    .loop("left", swing(10, -12)).loop("top", swing(12, -10)).loop("opacity", swing(1, 0));
 };
 
-// a section's heading: a numbered cap on the spine, then a dark strip with the name
-function heading(id, f, n, name, on = true, i = 0) {
-  const cap = grow(div().id(`${id}-cap`).h_full().flex_none().bg(f.slate).flex().items_center().justify_end().pr(6)
-    .text_color(P.black).text_size(11).font_weight(700).child(two(n)), on, SPINE, i);
-  const strip = fade(h_flex().id(`${id}-strip`).flex_1().h_full().bg(f.deep).items_center().px(8).text_color(f.ink).text_size(11)
-    .font_weight(700).child(up(name)), on, i);
-  return h_flex().id(id).w_full().h(16).flex_none().gap(GAP).child(cap.rounded_l(8)).child(strip);
-}
+// a card in the right column: a near-black rounded panel with a small grey label and a large red figure, as on the
+// 25th-century side panels
+const card = (id, f, label, figure, on, i) => fade(v_flex().id(id).w_full().flex_none().bg(f.panel).rounded(10).p(8).gap(GAP), on, i)
+  .child(h_flex().w_full().items_end().justify_between().pb(2)
+    .child(div().text_color(f.mid).text_size(10).font_weight(700).child(label))
+    .child(div().text_color(P.red).text_size(20).font_weight(700).child(figure)));
 
 // Herdr's menu mod at the pointer: tab is "space", "tab", "pane" or "global"
 const menu = (tab, target) => openOverlay({ mod: "menu", kind: "popup", width: 200, height: 260, props: { tab, target } });
@@ -200,148 +192,133 @@ export default class Lcars25 extends View {
   machines() {
     const close = () => closeOverlay(props()?.overlay);
     const all = [{ name: null, layout: "ready" }, ...machines().filter((m) => m.name)];
-    const row = (m, i) => {
+    const row = (m) => {
       const ready = m.layout === "ready";
-      return h_flex().id(`new-space-${m.name ?? "local"}`).w_full().h(30).flex_none().gap(GAP)
-        .when(ready, (el) => el.cursor_pointer().hover((st) => st.opacity(0.8))
+      return h_flex().id(`new-space-${m.name ?? "local"}`).w_full().h(26).flex_none().rounded(13).bg(P.dark).items_center().px(12)
+        .text_color(ready ? P.light : P.mid).text_size(12).font_weight(700)
+        .when(ready, (el) => el.cursor_pointer().hover((st) => st.bg(P.mid))
           .on_click(() => { close(); run("space.new", m.name ? { machine: m.name } : {}); }))
-        .child(div().w(SPINE).h_full().flex_none().bg(ready ? P.slate : P.line).rounded_l(15).flex().items_center().justify_end().pr(6)
-          .text_color(P.black).text_size(12).font_weight(700).child(two(i + 1)))
-        .child(h_flex().flex_1().h_full().bg(P.deep).items_center().px(8).text_color(ready ? P.ink : P.mute).text_size(13)
-          .font_weight(700).child(up(`${m.name ?? "this computer"}${ready ? "" : " · " + m.layout}`)));
+        .child(up(`${m.name ?? "this computer"}${ready ? "" : " · " + m.layout}`));
     };
-    return v_flex().size_full().bg(P.bg).rounded(12).p(6).gap(GAP)
-      .child(heading("new-space-title", P, all.length, "new space on"))
-      .children(all.map(row));
+    return div().size_full().bg(P.light).rounded(14).p(6).child(
+      card("new-space-card", P, "NEW SPACE ON", two(all.length), true, 0).size_full().children(all.map(row)));
   }
 
+  // The top bar: two dark pill bars joined by a thin connector, as the title bars of the 25th-century displays. The
+  // left one names the shown space and carries the alert; the right one carries the load, the stardate and the clock.
   top() {
     const f = frame(), red = alert(), on = this.on;
     const space = spaces().find((s) => s.active);
     const crew = agents();
     const need = crew.filter((a) => a.status === "blocked").length;
-    const working = crew.filter((a) => a.status === "working").length;
     const done = crew.filter((a) => a.status === "done").length;
-    // a soft light that runs along the arm while any agent works, faster with more of them
-    const scan = h_flex().id("scan").absolute().top(0).h_full().w(160)
-      .child(div().relative().flex_1().h_full().child(gradient("#ffffff00", "#ffffffb0")))
-      .child(div().relative().flex_1().h_full().child(gradient("#ffffffb0", "#ffffff00")))
-      .loop("left", { from: -160, to: 1800, period: Math.max(4000, 11000 - working * 1500), easing: "linear" });
-    // this computer's load, kept quiet: a dim label, the figure, and a 2px line that eases to each new reading
     const sys = this.sys;
-    const meter = (id, label, share, color) => v_flex().flex_none().w(64).gap(2)
-      .child(h_flex().w_full().justify_between().text_size(10).text_color(f.dim)
-        .child(label).child(div().text_color(f.ink).child(sys ? `${Math.round(share * 100)}%` : "--")))
-      .child(div().w_full().h(2).bg(f.line)
-        .child(div().id(id).h_full().w(Math.round(64 * (sys ? share : 0))).bg(share > 0.85 ? STATUS.blocked : color)
+    // this computer's load, kept quiet: a dim label, the figure, and a 2px line that eases to each new reading
+    const meter = (id, label, share) => v_flex().flex_none().w(60).gap(2)
+      .child(h_flex().w_full().justify_between().text_size(10).text_color(f.mid)
+        .child(label).child(div().text_color(f.light).child(sys ? `${Math.round(share * 100)}%` : "--")))
+      .child(div().w_full().h(2).bg(P.black)
+        .child(div().id(id).h_full().w(Math.round(60 * (sys ? share : 0))).bg(share > 0.85 ? P.red : f.light)
           .transition("width", { duration: 900, easing: "ease-out" })));
-    const arm = h_flex().w_full().h(ARM).flex_none().gap(GAP)
-      .child(chase(grow(div().id("top-arm-0").h_full().bg(f.steel), on, 140, 0), red, 0))
-      .child(chase(grow(div().id("top-arm-1").h_full().bg(f.ice), on, 36, 2), red, 1))
-      .child(chase(div().id("top-arm-2").relative().flex_1().h_full().overflow_hidden()
-        .child(fade(div().id("top-arm-2-fill").relative().size_full().child(gradient(f.steel, f.slate)), on, 3))
-        .when(working > 0 && !red && on, (el) => el.child(scan)), red, 2))
-      .child(chase(grow(div().id("top-arm-3").h_full().bg(f.crimson), on, 64, 6), red, 3))
-      .child(chase(grow(div().id("top-arm-4").h_full().bg(f.steel).rounded_tr(5).rounded_br(5), on, 28, 8), red, 4));
-    const hairline = fade(h_flex().id("top-hairline").w_full().h(2).flex_none().gap(GAP).mt(2)
-      .child(div().w(140).h_full().bg(f.steel)).child(div().flex_1().h_full().bg(f.line)).child(div().w(95).h_full().bg(f.crimson)), on, 6);
-    // the concave inner corner: the background with a rounded top-left corner, over the corner's colour
-    const title = div().w_full().flex_1().min_h(0).bg(f.steel).child(
-      h_flex().size_full().bg(P.bg).rounded_tl(16).items_center().gap(12).pr(8)
-        .pl(appWindow()?.platform === "macos" ? 78 : 18) // clear of the window buttons, which sit in this corner on macOS
-        .child(div().text_color(f.ice).text_size(22).font_weight(700).child(up(space?.name ?? "HERDR")))
-        .child(div().text_color(f.dim).text_size(10).child(space
+    // on red alert a row of bars beside the words, each pulsing at its own pace, as on the alert displays
+    const bars = (side) => h_flex().flex_none().gap(5).children(Array.from({ length: 9 }, (_, i) =>
+      div().id(`alert-bar-${side}-${i}`).w(5).h(14).bg(P.black).loop("opacity", { from: 0.25, to: 1, period: 600 + i * 110 })));
+    const left = fade(h_flex().id("title").flex_1().min_w(0).h(28).rounded(14).bg(red ? f.light : f.dark).items_center().gap(12).px(16), on, 0)
+      .when(!red, (el) => el
+        .child(div().flex_none().text_color(f.light).text_size(18).font_weight(700).child(up(space?.name ?? "HERDR")))
+        .child(div().flex_none().text_color(f.mid).text_size(10).child(space
           ? `${two(space.index)} · ${up(space.machine ?? "this computer")} · ${two((space.tabs ?? []).filter((t) => !t.settled).length)} TABS` : ""))
         .child(div().flex_1())
-        .when(red, (el) => el.child(div().id("red-alert").flex_none().h(20).px(12).rounded(10).bg(STATUS.blocked).flex().items_center()
-          .text_color(P.black).text_size(12).font_weight(700).loop("opacity", { from: 0.45, to: 1, period: 900 })
-          .child(`RED ALERT · ${two(need)} ${need === 1 ? "AGENT NEEDS" : "AGENTS NEED"} YOU`)))
-        .when(yellow(), (el) => el.child(div().id("yellow-alert").flex_none().h(20).px(12).rounded(10).bg(STATUS.done).flex().items_center()
-          .text_color(P.black).text_size(12).font_weight(700).child(`YELLOW ALERT · ${two(done)} FINISHED, NOT SEEN`)))
-        .child(meter("sys-cpu", "CPU", sys?.cpu ?? 0, STATUS.working))
-        .child(meter("sys-mem", "MEM", sys?.mem ?? 0, f.slate))
-        .child(div().text_color(P.amber).text_size(11).child(`STARDATE ${stardate(this.now)}`))
-        .child(div().text_color(f.ink).text_size(13).font_weight(700).child(new Date(this.now).toTimeString().slice(0, 5))));
-    return h_flex().id("top").size_full().bg(P.bg).on_mouse_down("right", onRight(globalMenu))
-      .child(div().id("top-corner").w(SPINE).h_full().flex_none().bg(f.steel).rounded_tl(30))
-      .child(v_flex().flex_1().h_full().min_w(0).child(arm).child(hairline).child(title));
+        .when(done > 0, (el) => el.child(div().id("yellow-alert").flex_none().h(18).px(10).rounded(9).bg(P.amber).flex().items_center()
+          .text_color(P.black).text_size(11).font_weight(700).child(`ALERT CONDITION: YELLOW · ${two(done)} FINISHED, NOT SEEN`))))
+      .when(red, (el) => el.justify_center()
+        .child(bars("l"))
+        .child(div().flex_none().text_color(P.black).text_size(18).font_weight(700)
+          .child(`ALERT CONDITION: RED · ${two(need)} ${need === 1 ? "AGENT NEEDS" : "AGENTS NEED"} YOU`))
+        .child(bars("r")));
+    const right = fade(h_flex().id("readouts").flex_none().h(28).rounded(14).bg(f.dark).items_center().gap(14).px(16), on, 3)
+      .child(meter("sys-cpu", "CPU", sys?.cpu ?? 0))
+      .child(meter("sys-mem", "MEM", sys?.mem ?? 0))
+      .child(div().flex_none().text_color(P.red).text_size(11).child(stardate(this.now)))
+      .child(div().flex_none().text_color(f.light).text_size(14).font_weight(700).child(new Date(this.now).toTimeString().slice(0, 5)));
+    return h_flex().id("top").size_full().bg(P.bg).items_center().px(10).on_mouse_down("right", onRight(globalMenu))
+      .child(div().flex_none().w(appWindow()?.platform === "macos" ? 66 : 0)) // the window buttons sit here on macOS
+      .child(left)
+      .child(grow(div().id("title-link").h(6).flex_none().bg(f.dark), on, 48, 2))
+      .child(right);
   }
 
+  // The right column: the light grey frame with dark cards inside it, spaces then crew, running down into the corner
+  // of the bottom bar.
   side() {
     const f = frame(), on = this.on;
     const list = spaces();
     const crew = agents();
     waiting(); // notes when each blocked agent started waiting, for the red alert
     setAgentOrder(crew.map((a) => a.address));
-    const caps = [f.slate, f.steel, f.ice, f.mute];
     const space = (s, i) => {
-      const hail = s.status === "blocked";
-      return h_flex().id(`space-${s.id}`).w_full().h(30).flex_none().gap(GAP).cursor_pointer()
+      const hail = s.status === "blocked" && !s.active;
+      const bg = s.active ? f.light : hail ? P.red : f.dark;
+      const ink = s.active || hail ? P.black : f.light;
+      return grow(h_flex().id(`space-${s.id}`).h(24).flex_none().rounded(12).bg(bg).items_center().gap(8).pl(10).pr(7).cursor_pointer(),
+        on, COL - 38, 1 + i)
         .hover((st) => st.opacity(0.8))
+        .when(hail, (el) => el.loop("opacity", { from: 0.5, to: 1, period: 900 }))
         .on_click(() => run("space.select", { id: s.id }))
         .on_mouse_down("right", onRight(() => menu("space", { id: s.id })))
-        .child(grow(div().id(`space-cap-${s.id}`).h_full().flex_none().bg(hail ? STATUS.blocked : s.active ? f.ice : caps[i % caps.length])
-          .rounded_l(15).flex().items_center().justify_end().pr(6).text_color(P.black).text_size(12).font_weight(700), on, SPINE, 1 + i)
-          .when(hail && !s.active, (el) => el.loop("opacity", { from: 0.5, to: 1, period: 900 }))
-          .child(`${two(s.index)}${s.machine ? "·" + up(s.machine).slice(0, 3) : ""}`))
-        .child(fade(h_flex().id(`space-strip-${s.id}`).relative().flex_1().min_w(0).h_full().bg(s.active ? f.ice : f.deep)
-          .items_center().justify_between().px(8).gap(6), on, 1 + i)
-          .when(s.active, (el) => el.child(gradient(f.slate, f.ice)))
-          .child(div().relative().text_color(s.active ? P.black : f.ink).text_size(13).font_weight(700).truncate().child(up(s.name)))
-          .when(!!STATUS[s.status] && s.status !== "idle" && !s.active, (el) => el
-            .child(div().w(6).h(6).flex_none().rounded(3).bg(STATUS[s.status]))));
+        .child(div().flex_none().text_color(s.active || hail ? P.black : f.mid).text_size(10).font_weight(700)
+          .child(`${two(s.index)}${s.machine ? " · " + up(s.machine).slice(0, 4) : ""}`))
+        .child(div().flex_1().min_w(0).text_color(ink).text_size(12).font_weight(700).truncate().child(up(s.name)))
+        // the knob at the right, as on the display's toggles: lit when something in the space is working or done
+        .child(div().w(10).h(10).flex_none().rounded(5).bg(s.status === "done" ? P.amber : s.status === "working" && !s.active ? f.light : P.black));
     };
     const member = (a, i) => {
       const lit = this.glow.has(a.address); // it just stopped working
-      const c = lit ? GOLD : STATUS[a.status] ?? f.mute;
-      const at = list.length + 3 + i;
-      return h_flex().id(`agent-${a.address}`).relative().w_full().h(32).flex_none().gap(GAP).cursor_pointer()
+      const c = lit ? P.amber : STATUS[a.status] ?? f.mid;
+      return h_flex().id(`agent-${a.address}`).relative().w_full().h(30).flex_none().gap(8).items_center().pl(4).cursor_pointer()
         .hover((st) => st.opacity(0.8))
         .on_click(() => run("agent.focus", { terminal: a.address }))
         .on_mouse_down("right", onRight(() => menu("pane", { pane: a.pane, terminal: a.address })))
-        .child(grow(div().id(`agent-cap-${a.address}`).h_full().flex_none().bg(c).rounded_l(16).flex().items_center().justify_end().pr(6)
-          .text_color(P.black).text_size(10).font_weight(700), on, SPINE, at)
-          .when(a.status === "blocked", (el) => el.loop("opacity", { from: 0.4, to: 1, period: 700 }))
-          .child(lit ? "DONE" : SHORT[a.status] ?? ""))
-        .child(fade(v_flex().id(`agent-text-${a.address}`).flex_1().min_w(0).h_full().justify_center().pl(8).pr(6), on, at)
-          .child(div().text_size(12).font_weight(700).text_color(a.focused ? f.ice : f.ink).truncate()
+        .child(div().id(`agent-light-${a.address}`).w(8).h(18).flex_none().rounded(4).bg(c)
+          .when(a.status === "blocked", (el) => el.loop("opacity", { from: 0.35, to: 1, period: 700 })))
+        .child(v_flex().flex_1().min_w(0)
+          .child(div().text_size(11).font_weight(700).text_color(a.focused ? P.white : f.light).truncate()
             .child(up(`${a.program?.name ?? a.app ?? "agent"} · ${a.tab_name}`)))
-          .child(div().text_size(10).text_color(a.status === "blocked" ? c : f.dim).truncate()
-            .child(`${WORD[a.status] ?? up(a.status)} · ${up(a.space_name)}`)))
+          .child(div().text_size(9).text_color(a.status === "blocked" || lit ? c : f.mid).truncate()
+            .child(`${lit ? "DONE" : WORD[a.status] ?? up(a.status)} · ${up(a.space_name)}`)))
         .when(lit, (el) => el.child(shimmer(a.address)))
         .when(this.hail.has(a.address), (el) => el.child(ring(a.address, 0, 1500)).child(ring(a.address, 1, 2300)));
     };
-    return v_flex().id("side").size_full().bg(P.bg).gap(GAP).on_mouse_down("right", onRight(globalMenu))
-      .child(div().id("side-carry").w(SPINE).h(8).flex_none().bg(f.steel)) // carries the top corner down
-      .child(heading("spaces-label", f, list.length, "spaces", on, 0))
-      .children(list.map(space))
-      .child(h_flex().id("space-new").w_full().h(22).flex_none().gap(GAP).cursor_pointer().hover((st) => st.opacity(0.7))
-        .on_click(() => newSpace()).on_mouse_down("right", onRight(newSpace))
-        .child(grow(div().id("space-new-cap").h_full().flex_none().bg(f.line).rounded_l(11).flex().items_center().justify_end().pr(6)
-          .text_color(f.ink).text_size(14).font_weight(700).child("+"), on, SPINE, list.length + 1))
-        .child(fade(div().id("space-new-text").flex_1().h_full().flex().items_center().px(8).text_color(f.dim).text_size(11).font_weight(700)
-          .child("NEW SPACE"), on, list.length + 1)))
-      .child(heading("crew-label", f, crew.length, "crew", on, list.length + 2))
-      .children(crew.map(member))
-      .child(fade(div().id("spine").w(SPINE).flex_1().min_h(8).bg(f.steel), on, list.length + crew.length + 3)); // the spine, down to the bottom corner
+    return v_flex().id("side").size_full().bg(f.light).rounded_tl(18).rounded_tr(18).pl(14).pr(8).pt(10).gap(8)
+      .on_mouse_down("right", onRight(globalMenu))
+      .child(card("spaces-card", f, "SPACES", two(list.length), on, 0)
+        .children(list.map(space))
+        .child(h_flex().id("space-new").h(22).flex_none().rounded(11).border(1).border_color(f.dark).items_center().px(10)
+          .text_color(f.mid).text_size(10).font_weight(700).cursor_pointer().hover((st) => st.bg(f.dark))
+          .on_click(() => newSpace()).on_mouse_down("right", onRight(newSpace)).child("+ NEW SPACE")))
+      .child(card("crew-card", f, "CREW", two(crew.length), on, 3).children(crew.map(member)));
   }
 
   tabs() {
     const f = frame();
     const space = spaces().find((s) => s.active);
-    const pill = (t) => h_flex().id(`tab-${t.id}`).h_full().flex_none().px(12).gap(6).rounded(13).bg(t.active ? f.ice : f.deep).items_center()
-      .text_color(t.active ? P.black : f.ink).text_size(12).font_weight(700).cursor_pointer()
-      .hover((st) => st.opacity(0.8))
-      .on_click(() => run("tab.select", { id: t.id }))
-      .on_mouse_down("right", onRight(() => menu("tab", { id: t.id, space: space.id })))
-      .when(!!STATUS[t.status], (el) => el.child(div().w(7).h(7).flex_none().rounded(4).bg(t.active && t.status !== "blocked" ? P.black : STATUS[t.status])
-        .when(t.status === "blocked", (el) => el.loop("opacity", { from: 0.3, to: 1, period: 800 }))))
-      .child(`${two(t.index)} ${up(t.name)}`);
-    return h_flex().id("tab-bar").size_full().gap(GAP + 1).items_center().overflow_x_scrollbar()
+    const pill = (t) => {
+      const hail = t.status === "blocked" && !t.active;
+      return h_flex().id(`tab-${t.id}`).h_full().flex_none().px(12).gap(6).rounded(13).bg(t.active ? f.light : hail ? P.red : f.dark).items_center()
+        .text_color(t.active || hail ? P.black : f.light).text_size(12).font_weight(700).cursor_pointer()
+        .hover((st) => st.opacity(0.8))
+        .when(hail, (el) => el.loop("opacity", { from: 0.5, to: 1, period: 800 }))
+        .on_click(() => run("tab.select", { id: t.id }))
+        .on_mouse_down("right", onRight(() => menu("tab", { id: t.id, space: space.id })))
+        .child(`${two(t.index)} ${up(t.name)}`)
+        .when(t.status === "working" || t.status === "done", (el) => el
+          .child(div().w(8).h(8).flex_none().rounded(4).bg(t.status === "done" ? P.amber : t.active ? P.black : f.light)));
+    };
+    return h_flex().id("tab-bar").size_full().gap(GAP).items_center().overflow_x_scrollbar()
       .on_mouse_down("right", onRight(globalMenu))
       .children((space?.tabs ?? []).filter((t) => !t.settled).map(pill))
-      .child(h_flex().id("tab-new").h_full().flex_none().px(11).rounded(13).bg(f.line).items_center()
-        .text_color(f.ink).text_size(16).font_weight(700).cursor_pointer().hover((st) => st.bg(f.steel))
+      .child(h_flex().id("tab-new").h_full().flex_none().px(11).rounded(13).border(1).border_color(f.dark).items_center()
+        .text_color(f.mid).text_size(16).font_weight(700).cursor_pointer().hover((st) => st.bg(f.dark))
         .on_click(() => newMenu()).on_mouse_down("right", onRight(newMenu)).child("+"));
   }
 
@@ -352,42 +329,50 @@ export default class Lcars25 extends View {
     if (!p) return div();
     const c = STATUS[p.status];
     return h_flex().id(`pane-${p.pane}`).size_full().bg(P.bg).items_center().gap(6).px(6)
-      .child(div().flex_none().h(13).px(8).rounded(7).bg(p.focused ? f.ice : f.line).flex().items_center()
-        .text_color(p.focused ? P.black : f.dim).text_size(10).font_weight(700).child(up(p.program?.name ?? p.app ?? p.mod ?? "shell")))
+      .child(div().flex_none().h(13).px(8).rounded(7).bg(p.focused ? f.light : f.dark).flex().items_center()
+        .text_color(p.focused ? P.black : f.mid).text_size(10).font_weight(700).child(up(p.program?.name ?? p.app ?? p.mod ?? "shell")))
       .when(!!c, (el) => el.child(div().flex_none().text_color(c).text_size(10).font_weight(700).child(WORD[p.status])))
-      .child(div().flex_1().min_w(0).text_color(f.dim).text_size(10).truncate().child(up(p.title)))
-      .when(!!p.branch, (el) => el.child(div().flex_none().text_color(P.amber).text_size(10).child(up(p.branch))));
+      .child(div().flex_1().min_w(0).text_color(f.mid).text_size(10).truncate().child(up(p.title)))
+      .when(!!p.branch, (el) => el.child(div().flex_none().text_color(P.red).text_size(10).child(up(p.branch))));
   }
 
+  // The bottom bar: a status line over a thin band of the frame, which turns up into the right column at the corner.
   bottom() {
-    const f = frame(), red = alert(), on = this.on;
+    const f = frame(), on = this.on;
     const crew = agents();
     const count = (s) => crew.filter((a) => a.status === s).length;
+    const working = count("working");
     const away = machines().filter((m) => m.name).length;
-    // the gear opens Herdr's settings
-    const corner = div().id("settings").w(SPINE).h_full().flex_none().bg(f.mute).rounded_bl(26).flex().items_center().justify_center()
-      .cursor_pointer().hover((st) => st.bg(f.slate)).on_click(() => run("app.settings"))
-      .child(svg("mods/lcars25/gear.svg").size(14).text_color(P.black));
     const item = (color, text) => div().flex_none().text_color(color).child(text);
-    const status = div().w_full().flex_1().min_h(0).bg(f.mute).child(
-      h_flex().size_full().bg(P.bg).rounded_bl(14).items_center().gap(16).pl(16).pr(8).text_size(11).font_weight(700)
-        .child(div().id("menu").flex_none().text_color(f.ink).cursor_pointer().hover((st) => st.opacity(0.7))
-          .on_click(() => menu("global", {})).child("MENU"))
-        .child(item(STATUS.working, `${two(count("working"))} WORKING`))
-        .child(item(count("blocked") ? STATUS.blocked : f.mute, `${two(count("blocked"))} NEED YOU`))
-        .child(item(STATUS.done, `${two(count("done"))} DONE`))
-        .child(item(f.dim, `${two(away + 1)} MACHINES`))
+    // the inner corner: the background with a rounded bottom-right corner, over the frame's colour
+    const status = div().w_full().flex_1().min_h(0).bg(f.light).child(
+      h_flex().size_full().bg(P.bg).rounded_br(16).items_center().gap(16).pl(14).pr(20).text_size(11).font_weight(700)
+        .child(item(f.light, `${two(working)} WORKING`))
+        .child(item(count("blocked") ? P.red : f.mid, `${two(count("blocked"))} NEED YOU`))
+        .child(item(count("done") ? P.amber : f.mid, `${two(count("done"))} DONE`))
+        .child(item(f.mid, `${two(away + 1)} MACHINES`))
         .child(div().flex_1())
-        .child(div().id("palette").flex_none().text_color(f.dim).cursor_pointer().hover((st) => st.opacity(0.7))
+        .child(div().id("palette").flex_none().text_color(f.mid).cursor_pointer().hover((st) => st.opacity(0.7))
           .on_click(() => run("app.palette")).child(`${appWindow()?.platform === "macos" ? "⌘" : "CTRL"} SHIFT P`)));
-    const arm = h_flex().w_full().h(8).flex_none().gap(GAP)
-      .child(chase(grow(div().id("bottom-arm-0").h_full().bg(f.mute), on, 120, 0), red, 4))
-      .child(chase(div().id("bottom-arm-1").relative().flex_1().h_full().overflow_hidden()
-        .child(fade(div().id("bottom-arm-1-fill").relative().size_full().child(gradient(f.slate, f.steel)), on, 3)), red, 3))
-      .child(chase(grow(div().id("bottom-arm-2").h_full().bg(f.ice), on, 80, 6), red, 2))
-      .child(chase(grow(div().id("bottom-arm-3").h_full().bg(f.crimson).rounded_tr(4).rounded_br(4), on, 30, 8), red, 1));
+    // a soft light that runs along the band while any agent works, faster with more of them
+    const scan = h_flex().id("scan").absolute().top(0).h_full().w(200)
+      .child(div().relative().flex_1().h_full().child(gradient("#ffffff00", "#ffffffe0")))
+      .child(div().relative().flex_1().h_full().child(gradient("#ffffffe0", "#ffffff00")))
+      .loop("left", { from: -200, to: 1800, period: Math.max(4000, 11000 - working * 1500), easing: "linear" });
+    const band = fade(div().id("band").relative().w_full().h(8).flex_none().bg(f.light).rounded_bl(4).overflow_hidden(), on, 2)
+      .when(working > 0 && on, (el) => el.child(scan));
+    // the corner of the frame: MENU and the gear (Herdr's settings) in black on the grey
+    const corner = h_flex().id("menu").w(COL).h_full().flex_none().bg(f.light).rounded_br(22).items_center().justify_end().gap(10).pr(16)
+      .text_color(P.black).text_size(12).font_weight(700).cursor_pointer().hover((st) => st.opacity(0.85))
+      .on_click(() => menu("global", {}))
+      .child("MENU")
+      .child(div().id("settings").cursor_pointer().hover((st) => st.opacity(0.6))
+        .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+        .on_mouse_down("right", (_e, cx) => cx.stop_propagation())
+        .on_click(() => run("app.settings"))
+        .child(svg("mods/lcars25/gear.svg").size(14).text_color(P.black)));
     return h_flex().id("bottom").size_full().bg(P.bg).on_mouse_down("right", onRight(globalMenu))
-      .child(corner)
-      .child(v_flex().flex_1().h_full().min_w(0).child(status).child(arm));
+      .child(v_flex().flex_1().h_full().min_w(0).child(status).child(band))
+      .child(corner);
   }
 }
