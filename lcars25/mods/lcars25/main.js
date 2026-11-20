@@ -21,7 +21,9 @@ const P = {
 // the frame on red alert: the light grey turns red, as on the ALERT CONDITION: RED displays. Status colours stay.
 const RED = { ...P, light: "#e7442a", mid: "#b8321c", dark: "#7d2012", accent: "#ffb8a8", glint: "#ff6a4d", mid2: "#a32c18",
   ghost: "#2a0b06" };
-const STATUS = { working: "#9ea5ba", blocked: "#e7442a", done: "#f2b24a", idle: "#6d748c" };
+// each status its own colour: working blue, needing you red, done amber, standing by mid grey. Blue is ours, not the
+// reference's, so working can be told from the grey frame and from standing by.
+const STATUS = { working: "#66b8e0", blocked: "#e7442a", done: "#f2b24a", idle: "#6d748c" };
 const WORD = { working: "WORKING", blocked: "NEEDS YOU", done: "DONE", idle: "STANDING BY" };
 const T = 12; // a band's thickness
 const R = 24; // a loop's outer corner
@@ -56,7 +58,41 @@ const WATCH = 5000;
 const alert = () => shared(ALERT) === "red" && agents().some((a) => a.status === "blocked");
 // yellow alert needs no clock: it is on while any agent is done and unseen, and red alert outranks it
 const yellow = () => !alert() && agents().some((a) => a.status === "done");
-const frame = () => (alert() ? RED : P);
+// Purple: an LFSI milestone underway. LFSI names a tab "<project> <milestone> · <state>" and phase() reads the state. While
+// a tab is in a phase LFSI works through on its own (UNDERWAY), its tab, its space's tick and its agents are marked violet.
+// When a run starts or a milestone ships, the sidebar shares a flare under PURPLE and the whole frame turns violet for
+// FLARE ms, as red alert turns it red. Red alert outranks the flare; the flare outranks yellow alert.
+const PURPLE = "lcars25.purple";
+const FLARE = 10000;
+const V = "#a48fe0";
+const VIOLET = { ...P, light: V, mid: "#706198", dark: "#3b3351", accent: "#d9ceff", glint: "#c4b4f2", mid2: "#5f5284", ghost: "#1a1626" };
+// LFSI's state words, each with its icon (mods/lcars25/phase-<icon>.svg); a tab name ending in anything else has no phase
+const PHASE_ICON = { open: "open", building: "building", review: "review", verify: "verify", integrating: "integrating",
+  "waiting on you": "waiting", shipped: "shipped", stopped: "stopped", ready: "ready" };
+const UNDERWAY = new Set(["open", "building", "review", "verify", "integrating"]);
+const RUNNING = new Set(["building", "review", "verify"]);
+function phase(name) {
+  const said = /·\s*([^·]+)$/.exec(name ?? "")?.[1];
+  const m = said && /^([a-z ]+?)(?:\s+(\d+)\/(\d+))?\s*$/i.exec(said.trim());
+  const word = m?.[1].toLowerCase();
+  if (!word || !(word in PHASE_ICON)) return null;
+  const icon = PHASE_ICON[word];
+  const color = UNDERWAY.has(word) ? V : icon === "waiting" ? P.red : icon === "shipped" ? P.amber : icon === "stopped" ? P.mid : P.light;
+  return { word, icon, color, label: `${up(word)}${m[2] ? ` ${m[2]}/${m[3]}` : ""}`, what: name.slice(0, name.lastIndexOf("·")).trim() };
+}
+// the tabs in an UNDERWAY phase, by id
+const underway = () => new Set(spaces().flatMap((s) => s.tabs).filter((t) => UNDERWAY.has(phase(t.name)?.word)).map((t) => t.id));
+// An agent's status as an icon (mods/lcars25/status-<status>.svg, drawn like the gear), set before its status word in the
+// pane header and the crew. Each moves a little, opacity only: working breathes, needing you pulses, done glows; standing
+// by is still, as the frame is when the crew rests. `key` makes the element's id unique where it is drawn.
+const STIR = { working: { from: 0.35, to: 1, period: 1800 }, blocked: { from: 0.4, to: 1, period: 900 }, done: { from: 0.6, to: 1, period: 2600 } };
+const sicon = (key, status, color, size) => {
+  const el = div().id(`sicon-${key}-${status}`).flex_none().size(size)
+    .child(svg(`mods/lcars25/status-${status}.svg`).size(size).text_color(color));
+  return STIR[status] ? el.loop("opacity", { ...STIR[status], easing: "ease-in-out" }) : el;
+};
+const flare = () => { const f = shared(PURPLE); return f && typeof f.text === "string" && f.until > Date.now() ? f : null; };
+const frame = () => (alert() ? RED : flare() ? VIOLET : P);
 
 // This computer's load, for the title area, never while `herdr-app check` runs. What cannot change (the cores, the
 // memory fitted, the page size) is read once by SYS_ONCE. SYS_SCRIPT then runs every SYS ms and reads only what moves;
@@ -165,6 +201,8 @@ export default class Lcars25 extends View {
       this.hail = new Map(); // agent address -> when it started needing you, for HAIL ms
       // a red alert kept from the last run says nothing now: nobody's wait has been timed yet
       if (!checking() && shared(ALERT) === "red") setShared(ALERT, "green");
+      this.phases = new Map(); // tab id -> its LFSI phase word at the last look, for the purple flare
+      if (!checking() && shared(PURPLE)) setShared(PURPLE, null);
       cx.timer.every(WATCH, (cx) => this.watch(cx));
     }
     // the power-up: every part of the frame starts dark. A pane's header and the popup have nothing to bring in.
@@ -203,6 +241,20 @@ export default class Lcars25 extends View {
         this.glow.set(a.address, now); end(GLOW); changed = true;
       }
     }
+    // a run starting or a milestone shipping raises the purple flare; a tab seen for the first time only sets the baseline
+    const tabs = spaces().flatMap((s) => s.tabs);
+    for (const t of tabs) {
+      const ph = phase(t.name), word = ph?.word ?? null;
+      const before = this.phases.has(t.id) ? this.phases.get(t.id) : undefined;
+      this.phases.set(t.id, word);
+      if (before === undefined || before === word || !ph || checking()) continue;
+      const text = RUNNING.has(word) && !RUNNING.has(before) ? "RUN STARTED" : word === "shipped" ? "SHIPPED" : null;
+      if (!text) continue;
+      const until = now + FLARE;
+      cx.timer.after(1, () => setShared(PURPLE, { text: `${up(ph.what)} · ${text}`, until }));
+      cx.timer.after(FLARE + 30, () => { if (shared(PURPLE)?.until === until) setShared(PURPLE, null); });
+    }
+    for (const k of [...this.phases.keys()]) if (!tabs.some((t) => t.id === k)) this.phases.delete(k);
     for (const [k, at] of [...this.glow]) if (now - at >= GLOW) { this.glow.delete(k); changed = true; }
     for (const [k, at] of [...this.hail]) if (now - at >= HAIL) { this.hail.delete(k); changed = true; }
     // an agent that has gone leaves nothing behind
@@ -295,7 +347,9 @@ export default class Lcars25 extends View {
     const sorted = [...crew].sort((a, b) => (rank[a.status] ?? 3) - (rank[b.status] ?? 3));
     const live = (a) => a.status in rank;
     setAgentOrder(sorted.map((a) => a.address));
+    const lane = underway();
     const space = (s, i) => {
+      const inLane = s.tabs.some((t) => lane.has(t.id));
       const hail = s.status === "blocked" && !s.active;
       const lit = s.active || hail;
       const busy = s.status === "working";
@@ -315,27 +369,33 @@ export default class Lcars25 extends View {
         .child(div().relative().flex_1().min_w(0).flex().justify_end().text_color(lit ? P.black : f.light).text_size(14).font_weight(700)
           .child(div().truncate().child(up(s.name))))
         // the tick at the right edge: lit when something in the space is working or done
-        .child(div().id(`space-tick-${s.id}`).relative().w(4).h_full().flex_none().bg(s.status === "done" ? P.amber : busy ? (s.active ? P.black : f.light) : lit ? P.black : f.dark)
+        .child(div().id(`space-tick-${s.id}`).relative().w(4).h_full().flex_none().bg(inLane ? V : s.status === "done" ? P.amber : busy ? (s.active ? P.black : f.light) : lit ? P.black : f.dark)
           .when(busy, (el) => el.loop("opacity", { from: 0.3, to: 1, period: 2600 + (i % 4) * 400 })));
     };
     const member = (a) => {
       const glow = this.glow.has(a.address); // it just stopped working
       const fin = glow || a.status === "done"; // finished: pulsing just now, or waiting to be seen
-      const c = fin ? P.amber : STATUS[a.status] ?? f.mid;
+      // in a tab whose milestone is underway: violet, with the phase for its word, unless it needs you or just finished
+      const m = lane.has(a.tab) && a.status !== "blocked" && !fin;
+      const c = m ? V : fin ? P.amber : STATUS[a.status] ?? f.mid;
       // the tab's own name leads; a bare number or no name keeps the program in front of it
       const name = a.tab_name && !/^\d+$/.test(a.tab_name) ? up(a.tab_name) : up(`${a.program?.name ?? a.app ?? "agent"} · ${a.tab_name ?? ""}`).replace(/ · $/, "");
       const strong = a.status !== "idle" || a.focused || fin;
-      const tone = a.status === "blocked" || fin ? c : f.light;
-      const word = fin ? "DONE" : WORD[a.status] ?? up(a.status);
+      const tone = c; // the status word and its icon in the status colour
+      const word = m ? phase(a.tab_name).label : fin ? "DONE" : WORD[a.status] ?? up(a.status);
       return h_flex().id(`agent-${a.address}`).relative().w_full().h(34).flex_none().gap(8).items_center().pl(4).cursor_pointer()
         .hover((st) => st.opacity(0.8))
         .on_click(() => run("agent.focus", { terminal: a.address }))
         .on_mouse_down("right", onRight(() => menu("pane", { pane: a.pane, terminal: a.address })))
+        .when(m, (el) => el.child(breath(`lane-${a.address}`, P.black, VIOLET.dark, 0.8, 4200)))
         .child(v_flex().id(`agent-words-${a.address}-${glow ? "pulse" : "still"}`).relative().flex_1().min_w(0).items_end()
           .when(glow, (el) => el.loop("opacity", { from: 0.4, to: 1, period: 800, easing: "ease-in-out" }))
-          .child(div().max_w_full().text_size(13).when(strong, (el) => el.font_weight(700)).text_color(fin ? P.amber : a.focused ? P.white : f.light).truncate()
+          .child(div().max_w_full().text_size(13).when(strong, (el) => el.font_weight(700)).text_color(m ? V : fin ? P.amber : a.focused ? P.white : f.light).truncate()
             .child(name))
-          .child(h_flex().max_w_full().gap(4).text_size(11).text_color(tone)
+          .child(h_flex().max_w_full().gap(4).items_center().text_size(11).text_color(tone)
+            // in a milestone underway the word is the phase, so the icon is the phase's too
+            .child(m ? svg(`mods/lcars25/phase-${phase(a.tab_name).icon}.svg`).flex_none().size(10).text_color(tone)
+              : sicon(`crew-${a.address}`, fin ? "done" : a.status in STATUS ? a.status : "idle", tone, 10))
             .child(div().flex_none().when(strong, (el) => el.font_weight(700)).child(word))
             .child(div().min_w(0).truncate().child(`· ${up(a.space_name)}`))))
         .child(div().relative().w(0).h(24).flex_none()
@@ -404,13 +464,16 @@ export default class Lcars25 extends View {
     const f = frame(), on = this.on;
     const space = spaces().find((s) => s.active);
     const shown = (space?.tabs ?? []).filter((t) => !t.settled);
+    const lane = underway();
     const seg = (t, i) => {
       const hail = t.status === "blocked" && !t.active;
-      return grow(h_flex().id(`tab-${t.id}`).relative().h_full().flex_none().bg(t.active ? f.light : hail ? P.red : i % 2 ? f.mid2 : f.mid).items_end().justify_end()
+      const inLane = !t.active && lane.has(t.id);
+      return grow(h_flex().id(`tab-${t.id}`).relative().h_full().flex_none().bg(t.active ? f.light : hail ? P.red : inLane ? V : i % 2 ? f.mid2 : f.mid).items_end().justify_end()
         .gap(6).px(10).pb(2).text_color(P.black).text_size(13).font_weight(700).cursor_pointer(), on, Math.max(120, 60 + up(t.name).length * 7), i)
         .when(i === 0, (el) => el.rounded_tl(STRIP - 2))
         .hover((st) => st.opacity(0.8))
         .when(hail, (el) => el.loop("opacity", { from: 0.5, to: 1, period: 800 }))
+        .when(inLane && !hail, (el) => el.loop("opacity", { from: 0.55, to: 1, period: 4200, easing: "ease-in-out" }))
         .on_click(() => run("tab.select", { id: t.id }))
         .on_mouse_down("right", onRight(() => menu("tab", { id: t.id, space: space.id })))
         .when(t.active, (el) => el.child(gradient(f.light, f.glint)))
@@ -441,6 +504,8 @@ export default class Lcars25 extends View {
     const crew = agents();
     const need = crew.filter((a) => a.status === "blocked").length;
     const done = crew.filter((a) => a.status === "done").length;
+    const fl = red ? null : flare();
+    const lane = underway().size;
     const sys = this.sys;
     const rule = () => div().flex_none().w(1).h(16).bg(f.dark); // a hairline between the load, the clock and the name
     // this computer's load, kept quiet: a dim label, the figure, and a 2px line that eases to each new reading
@@ -454,10 +519,12 @@ export default class Lcars25 extends View {
     // otherwise one row of them sits dark and still
     const busy = spaces().find((sp) => sp.active)?.tabs.find((t) => t.active)?.status === "working";
     const bars = (side) => h_flex().flex_none().gap(5).children(Array.from({ length: 9 }, (_, i) =>
-      div().id(`alert-bar-${side}-${red ? "red" : busy ? "busy" : "still"}-${i}`).w(5).h(13).bg(red ? P.red : busy ? f.mid : i % 3 === 2 ? f.mid2 : f.dark)
+      div().id(`alert-bar-${side}-${red ? "red" : fl ? "purple" : busy ? "busy" : "still"}-${i}`).w(5).h(13).bg(red ? P.red : fl ? V : busy ? f.mid : i % 3 === 2 ? f.mid2 : f.dark)
         .when(red, (el) => el.loop("opacity", { from: 0.2, to: 1, period: 600 + i * 110 }))
+        // on the purple flare they breathe slowly: a state you are in, not a call to act
+        .when(!!fl, (el) => el.loop("opacity", { from: 0.25, to: 1, period: 3000 + i * 240, easing: "ease-in-out" }))
         // while an agent in the shown tab is working the bars come up to grey and breathe, each at its own slow pace
-        .when(busy && !red, (el) => el.loop("opacity", { from: 0.3, to: 1, period: 1500 + ((i * 5) % 9) * 190, easing: "ease-in-out" }))));
+        .when(busy && !red && !fl, (el) => el.loop("opacity", { from: 0.3, to: 1, period: 1500 + ((i * 5) % 9) * 190, easing: "ease-in-out" }))));
     // the loop's left edge starts here, under the strip's corner: the band's colour with the panel's curve cut into it
     return div().id("title").size_full().bg(f.dark).pl(T).on_mouse_down("right", onRight(globalMenu)).child(v_flex().size_full().bg(P.bg).rounded_tl(r)
       .child(fade(v_flex().id("hairlines").w_full().flex_none().pt(3).pl(r).gap(3), on, 2)
@@ -469,7 +536,12 @@ export default class Lcars25 extends View {
           .child(div().flex_none().text_color(P.red).text_size(17).font_weight(700)
             .child(`ALERT CONDITION: RED · ${two(need)} ${need === 1 ? "AGENT NEEDS" : "AGENTS NEED"} YOU`))
           .child(bars("r")))
-        .when(!red && done > 0, (el) => el.child(div().id("yellow-alert").flex_none().text_color(P.amber).text_size(14).font_weight(700)
+        .when(!!fl, (el) => el
+          .child(div().flex_none().text_color(VIOLET.accent).text_size(17).font_weight(700).child(`ALERT CONDITION: PURPLE · ${fl.text}`))
+          .child(bars("r")))
+        .when(!red && !fl && !done && lane > 0, (el) => el.child(div().id("purple-condition").flex_none().text_color(V).text_size(14).font_weight(700)
+          .child(`CONDITION PURPLE · ${two(lane)} ${lane === 1 ? "MILESTONE" : "MILESTONES"} UNDERWAY`)))
+        .when(!red && !fl && done > 0, (el) => el.child(div().id("yellow-alert").flex_none().text_color(P.amber).text_size(14).font_weight(700)
           .child(`ALERT CONDITION: YELLOW · ${two(done)} FINISHED, NOT SEEN`)))
         .child(div().flex_1())
         .child(meter("sys-cpu", "CPU", sys?.cpu ?? 0))
@@ -491,7 +563,9 @@ export default class Lcars25 extends View {
   band() {
     const f = frame(), on = this.on;
     // between the accent and the grey, a ladder of ticks: one per agent, in its status colour
-    const tick = (a) => div().id(`tick-${a.address}`).w_full().h(8).flex_none().bg(STATUS[a.status] ?? f.dark)
+    const lane = underway();
+    const tick = (a) => div().id(`tick-${a.address}`).w_full().h(8).flex_none()
+      .bg(lane.has(a.tab) && a.status !== "blocked" && a.status !== "done" ? V : STATUS[a.status] ?? f.dark)
       .when(a.status === "blocked", (el) => el.loop("opacity", { from: 0.3, to: 1, period: 700 }));
     return v_flex().id("band").size_full().bg(P.bg).gap(GAP)
       .child(fade(div().id("band-accent").w_full().h(150).flex_none().bg(f.accent), on, 5))
@@ -515,6 +589,7 @@ export default class Lcars25 extends View {
     const working = count("working");
     const here = spaces().find((sp) => sp.active)?.tabs.find((t) => t.active)?.status === "working";
     const away = machines().filter((m) => m.name).length;
+    const lane = underway().size;
     const item = (color, text, lit) => h_flex().flex_none().gap(6).items_center().text_color(color)
       .child(lit ? div().w(6).h(6).flex_none().bg(color) : div().w(6).h(6).flex_none().border(1).border_color(color))
       .child(text);
@@ -525,9 +600,10 @@ export default class Lcars25 extends View {
     return v_flex().id("bottom").size_full().bg(P.bg).on_mouse_down("right", onRight(globalMenu))
       .child(div().w_full().flex_1().min_h(0).bg(f.dark).pl(T).child(h_flex().size_full().bg(P.bg).rounded_bl(r).items_center().justify_end()
         .gap(16).pl(8).pr(10).text_size(13).font_weight(700)
-        .child(item(working ? f.light : f.mid, `${two(working)} WORKING`, working > 0))
+        .child(item(working ? STATUS.working : f.mid, `${two(working)} WORKING`, working > 0))
         .child(item(count("blocked") ? P.red : f.mid, `${two(count("blocked"))} NEED YOU`, count("blocked") > 0))
         .child(item(count("done") ? P.amber : f.mid, `${two(count("done"))} DONE`, count("done") > 0))
+        .when(lane > 0, (el) => el.child(item(V, `${two(lane)} UNDERWAY`, true)))
         .child(div().flex_none().w(1).h(14).bg(f.dark))
         .child(div().flex_none().text_color(f.light).child(`${two(away + 1)} MACHINES`))))
       .child(h_flex().w_full().h(T).flex_none().gap(GAP)
@@ -541,11 +617,17 @@ export default class Lcars25 extends View {
     const f = frame();
     const p = panes().find((x) => x.pane === props()?.pane);
     if (!p) return div();
-    const c = STATUS[p.status];
+    const st = p.status;
+    const c = STATUS[st];
+    // the LFSI phase of the pane's tab: its icon and word, in the phase's colour
+    const ph = phase(spaces().flatMap((s) => s.tabs).find((t) => t.id === p.tab)?.name);
     return h_flex().id(`pane-${p.pane}`).size_full().bg(P.bg).items_center().gap(6).px(6)
       .child(div().flex_none().h(14).px(8).bg(p.focused ? f.light : f.dark).flex().items_center()
         .text_color(p.focused ? P.black : f.mid).text_size(12).font_weight(700).child(up(p.program?.name ?? p.app ?? p.mod ?? "shell")))
-      .when(!!c, (el) => el.child(div().flex_none().text_color(c).text_size(12).font_weight(700).child(WORD[p.status])))
+      .when(!!c, (el) => el.child(h_flex().flex_none().gap(4).items_center().text_color(c).text_size(12).font_weight(700)
+        .child(sicon(`pane-${p.pane}`, st, c, 12)).child(WORD[st])))
+      .when(!!ph, (el) => el.child(h_flex().flex_none().gap(4).items_center().text_color(ph.color).text_size(12).font_weight(700)
+        .child(svg(`mods/lcars25/phase-${ph.icon}.svg`).flex_none().size(12).text_color(ph.color)).child(ph.label)))
       .child(div().flex_1().min_w(0).text_color(f.light).text_size(12).truncate().child(up(p.title)))
       .when(!!p.branch, (el) => el.child(div().flex_none().text_color(P.red).text_size(12).child(up(p.branch))));
   }
